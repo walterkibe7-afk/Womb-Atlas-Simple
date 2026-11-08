@@ -1,0 +1,6 @@
+{
+  "name": "Womb Atlas",
+  "description": "A calm, warm, and minimal mobile-first menstrual and reproductive health tracking companion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

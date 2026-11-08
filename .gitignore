@@ -1,0 +1,13 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# AI Studio prototype temp artifacts (keep repos clean for client viewing)
+.aistudio/
+update/.aistudio/
+womb-atlas/
