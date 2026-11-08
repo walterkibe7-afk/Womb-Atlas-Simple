@@ -47,7 +47,7 @@ The original Womb Atlas (at `D:\Web Designs\Womb Atlas`) grew into something far
 - **Database: PostgreSQL 16 in a podman container** (WSL machine; host port **5433** — 5432 is occupied by the old project's DB). Started from root `compose.yaml`. See `prompts/00-backend-architecture.md` for the 4 tables (User/Profile/Entry/Session), enums, and the API contract — that file is the schema's single source of truth.
 - **Tailwind CSS v4** (`@tailwindcss/vite`) for styling
 - **Framer Motion (`motion/react`)** for animation
-- **What got superseded:** the pure-localStorage persistence plan (prompts archived at `prompts/archive-localstorage/`). The session token lives in `sessionStorage` (`wombatlas:v1:api-token`) while a browser tab is open; the pin hash and all diary data live server-side in Postgres.
+- **What got superseded:** the pure-localStorage persistence plan (its prompts were deleted outright with the stale prototype copies — recoverable only from git history if ever needed). The session token lives in `sessionStorage` (`wombatlas:v1:api-token`) while a browser tab is open; the pin hash and all diary data live server-side in Postgres.
 
 ## Locked decisions (do not re-litigate in future sessions)
 
