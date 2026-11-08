@@ -5,6 +5,8 @@ use std::env;
 use std::fs;
 use uuid::Uuid;
 
+use womb_atlas_backend::auth::hash_pin;
+
 #[derive(Debug)]
 struct SeedEntry {
     entry_date: NaiveDate,
@@ -16,17 +18,19 @@ struct SeedEntry {
     note: Option<String>,
 }
 
-fn load_env_file(path: &str) -> Result<()> {
-    let content = fs::read_to_string(path).context("Failed to read .env file")?;
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        if let Some((key, value)) = line.split_once('=') {
-            let key = key.trim();
-            let value = value.trim().trim_matches('"');
-            env::set_var(key, value);
+fn load_env_file_if_exists(path: &str) -> Result<()> {
+    if fs::metadata(path).is_ok() {
+        let content = fs::read_to_string(path).context("Failed to read .env file")?;
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = line.split_once('=') {
+                let key = key.trim();
+                let value = value.trim().trim_matches('"');
+                env::set_var(key, value);
+            }
         }
     }
     Ok(())
@@ -107,82 +111,145 @@ fn build_demo_entries(today: NaiveDate) -> Vec<SeedEntry> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load .env manually (no dotenv dependency)
-    let env_path = ".env";
-    load_env_file(env_path).context("Failed to load .env file")?;
+    // Load .env manually only if file exists
+    load_env_file_if_exists(".env").context("Failed to load .env file")?;
 
-    let database_url = env::var("DATABASE_URL").context("DATABASE_URL not set in .env")?;
+    // Require ALLOW_DEMO_SEED=1 to prevent accidental seeding in production
+    let allow_demo_seed = env::var("ALLOW_DEMO_SEED").unwrap_or_default();
+    if allow_demo_seed != "1" {
+        eprintln!("Refusing to seed: ALLOW_DEMO_SEED=1 not set. This prevents seeding demo credentials into a production database.");
+        std::process::exit(1);
+    }
+
+    let database_url = env::var("DATABASE_URL").context("DATABASE_URL not set")?;
     let pool = PgPool::connect(&database_url)
         .await
         .context("Failed to connect to database")?;
 
-    // Check if Achieng already exists
-    let existing_user: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE name = 'Achieng'")
+    // Check if demo user (achieng) already exists
+    let existing_user: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE handle = 'achieng'")
         .fetch_optional(&pool)
         .await
-        .context("Failed to query existing user")?;
+        .context("Failed to query existing demo user")?;
 
     if existing_user.is_some() {
         println!("Already seeded.");
         return Ok(());
     }
 
-    // Check if ANY other users exist (refuse to seed)
-    let other_users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE name != 'Achieng'")
-        .fetch_one(&pool)
+    // Check for legacy user (name = 'Achieng' AND handle IS NULL) - upgrade in place
+    let legacy_user: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE name = 'Achieng' AND handle IS NULL")
+        .fetch_optional(&pool)
         .await
-        .context("Failed to count other users")?;
+        .context("Failed to query legacy user")?;
 
-    if other_users > 0 {
-        eprintln!("Refusing to seed: other users exist in the database.");
-        std::process::exit(1);
-    }
+    let user_id = if let Some((legacy_id,)) = legacy_user {
+        // Upgrade legacy user: set handle and pin_hash
+        let pin_hash = hash_pin("246810")?;
+        sqlx::query(
+            r#"
+            UPDATE users SET handle = $1, pin_hash = $2, updated_at = now() WHERE id = $3
+            "#,
+        )
+        .bind("achieng")
+        .bind(&pin_hash)
+        .bind(legacy_id)
+        .execute(&pool)
+        .await
+        .context("Failed to upgrade legacy user")?;
+
+        println!("Upgraded demo user.");
+        legacy_id
+    } else {
+        // Create new demo user with handle and pin_hash
+        let pin_hash = hash_pin("246810")?;
+        let new_user_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO users (id, name, handle, pin_hash, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, now(), now())
+            "#,
+        )
+        .bind(new_user_id)
+        .bind("Achieng")
+        .bind("achieng")
+        .bind(&pin_hash)
+        .execute(&pool)
+        .await
+        .context("Failed to insert demo user")?;
+
+        new_user_id
+    };
 
     // Get today from DB clock
     let today = get_today_from_db(&pool).await?;
     let period_start = today - Duration::days(2);
 
-    // Create user Achieng (no pin_hash yet - setup not done)
-    let user_id = Uuid::new_v4();
-    sqlx::query(
-        r#"
-        INSERT INTO users (id, name, pin_hash, created_at, updated_at)
-        VALUES ($1, $2, $3, now(), now())
-        "#,
-    )
-    .bind(user_id)
-    .bind("Achieng")
-    .bind(None::<String>)
-    .execute(&pool)
-    .await
-    .context("Failed to insert user")?;
+    // Ensure profile exists and is completed (upgrade if needed)
+    let existing_profile: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM profiles WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_optional(&pool)
+        .await
+        .context("Failed to query existing profile")?;
 
-    // Create completed profile for Achieng
-    sqlx::query(
-        r#"
-        INSERT INTO profiles (id, user_id, last_period_start, life_stage, cycle_length, period_length, uses_hormonal_birth_control, has_completed_onboarding, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), now())
-        "#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(user_id)
-    .bind(period_start)
-    .bind("currently_cycling")
-    .bind(28)
-    .bind(5)
-    .bind(false)
-    .bind(true)
-    .execute(&pool)
-    .await
-    .context("Failed to insert profile")?;
+    if let Some((profile_id,)) = existing_profile {
+        sqlx::query(
+            r#"
+            UPDATE profiles SET
+                last_period_start = $1,
+                life_stage = $2::life_stage,
+                cycle_length = $3,
+                period_length = $4,
+                uses_hormonal_birth_control = $5,
+                has_completed_onboarding = $6,
+                updated_at = now()
+            WHERE id = $7
+            "#,
+        )
+        .bind(period_start)
+        .bind("currently-cycling")
+        .bind(28)
+        .bind(5)
+        .bind(false)
+        .bind(true)
+        .bind(profile_id)
+        .execute(&pool)
+        .await
+        .context("Failed to update profile")?;
+    } else {
+        // Create completed profile for demo user
+        sqlx::query(
+            r#"
+            INSERT INTO profiles (id, user_id, last_period_start, life_stage, cycle_length, period_length, uses_hormonal_birth_control, has_completed_onboarding, created_at, updated_at)
+            VALUES ($1, $2, $3, $4::life_stage, $5, $6, $7, $8, now(), now())
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(user_id)
+        .bind(period_start)
+        .bind("currently-cycling")
+        .bind(28)
+        .bind(5)
+        .bind(false)
+        .bind(true)
+        .execute(&pool)
+        .await
+        .context("Failed to insert profile")?;
+    }
 
-    // Insert demo entries
+    // Insert demo entries (idempotent - delete existing entries for this user first)
+    sqlx::query("DELETE FROM entries WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .context("Failed to clear existing entries")?;
+
     let entries = build_demo_entries(today);
     for entry in &entries {
         sqlx::query(
             r#"
             INSERT INTO entries (id, user_id, entry_date, cycle_day, flow, pain, symptoms, mood, note, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
+            VALUES ($1, $2, $3, $4, $5::flow, $6, $7, $8::mood, $9, now(), now())
             "#,
         )
         .bind(Uuid::new_v4())
@@ -199,6 +266,6 @@ async fn main() -> Result<()> {
         .context("Failed to insert entry")?;
     }
 
-    println!("Seeded demo user 'Achieng' with profile and {} entries.", entries.len());
+    println!("Seeded demo user 'achieng' with profile and {} entries.", entries.len());
     Ok(())
 }

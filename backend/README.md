@@ -41,6 +41,28 @@ cp backend/.env.example backend/.env
 
 The dev password (`womb_atlas_dev_2026`) is in both `compose.yaml` and `.env.example` — this is acceptable for a private project's development setup.
 
+### Run migrations and seed (from the built image)
+
+```bash
+# Build the backend image
+podman compose up -d --build backend
+
+# Run migrations (requires DATABASE_URL only, no .env file needed)
+podman run --rm \
+  -e DATABASE_URL="postgresql://womb_atlas:womb_atlas_dev_2026@host.containers.internal:5433/womb_atlas" \
+  womb-atlas-backend /app/migrate
+
+# Seed demo user (requires ALLOW_DEMO_SEED=1)
+podman run --rm \
+  -e ALLOW_DEMO_SEED=1 \
+  -e DATABASE_URL="postgresql://womb_atlas:womb_atlas_dev_2026@host.containers.internal:5433/womb_atlas" \
+  womb-atlas-backend /app/seed
+```
+
+**Demo credentials (dev-only):**
+- Handle: `achieng`
+- Passcode: `246810`
+
 ### What's next
 
 After the database is healthy, the following agents will add:

@@ -15,13 +15,27 @@ const VALID_MOOD: &[&str] = &["calm", "reflective", "sensitive", "low-energy", "
 const VALID_LIFE_STAGE: &[&str] = &["currently-cycling", "postpartum", "perimenopause", "pregnant-recovering", "not-sure"];
 
 pub fn validate_pin(pin: &str) -> ApiResult<()> {
-    if pin.len() < 4 || pin.len() > 12 {
-        return Err(ApiError::InvalidPin("pin must be 4-12 digits".to_string()));
+    if pin.len() != 6 {
+        return Err(ApiError::InvalidPin("pin must be exactly 6 digits".to_string()));
     }
     if !pin.chars().all(|c| c.is_ascii_digit()) {
         return Err(ApiError::InvalidPin("pin must contain only digits".to_string()));
     }
     Ok(())
+}
+
+pub fn validate_handle(handle: &str) -> ApiResult<String> {
+    let normalized = handle.trim().to_lowercase();
+    if normalized.len() < 3 || normalized.len() > 24 {
+        return Err(ApiError::Validation("handle must be 3-24 characters".to_string()));
+    }
+    if !normalized.chars().next().map_or(false, |c| c.is_ascii_alphanumeric()) {
+        return Err(ApiError::Validation("handle must start with a letter or digit".to_string()));
+    }
+    if !normalized.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+        return Err(ApiError::Validation("handle may only contain letters, digits, dots, underscores, and dashes".to_string()));
+    }
+    Ok(normalized)
 }
 
 pub fn validate_name(name: &str) -> ApiResult<String> {

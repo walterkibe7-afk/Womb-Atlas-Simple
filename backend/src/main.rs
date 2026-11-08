@@ -4,14 +4,7 @@ use std::net::SocketAddr;
 use tokio::signal;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod error;
-mod state;
-mod auth;
-mod validate;
-mod routes;
-mod app;
-
-use crate::{state::AppState, app::create_app};
+use womb_atlas_backend::{state::AppState, app::create_app};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

@@ -9,7 +9,8 @@ import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
 import { DesktopApp } from './components/desktop/DesktopApp';
 import {
   getHealth,
-  setupOrLogin,
+  register,
+  createSession,
   getMe,
   updateMe,
   listEntries,
@@ -56,7 +57,7 @@ export default function App() {
     hasCompletedOnboarding: false,
   });
 
-  const hydrateFromApi = useCallback(async () => {
+  const hydrateFromServer = useCallback(async () => {
     setIsLoading(true);
     setApiError(null);
     try {
@@ -126,8 +127,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    hydrateFromApi();
-  }, [hydrateFromApi]);
+    hydrateFromServer();
+  }, [hydrateFromServer]);
 
   const handleSaveEntry = async (newEntryData: Omit<DailyEntry, 'id' | 'createdAt'>) => {
     try {
@@ -182,13 +183,18 @@ export default function App() {
     }
   };
 
-  const handlePasscodeSet = async (pin?: string) => {
-    if (!pin) return;
+  const handleUnlockSubmit = async (mode: 'register' | 'signin', handle: string, pin: string) => {
     try {
-      const response = await setupOrLogin(pin);
+      let response;
+      if (mode === 'register') {
+        response = await register(handle, pin);
+      } else {
+        response = await createSession(handle, pin);
+      }
       saveToken(response.token);
       setToken(response.token);
 
+      // Reuse hydrateFromServer logic for consistent routing
       const me = await getMe();
       const entriesRes = await listEntries();
 
@@ -217,11 +223,27 @@ export default function App() {
       }));
 
       setEntries(mappedEntries);
-      setActiveView('onboarding-name');
+
+      // Route based on onboarding completion, just like hydration does
+      if (me.profile.hasCompletedOnboarding) {
+        if (me.profile.lastPeriodStart) {
+          setActiveView('home-phase');
+        } else {
+          setActiveView('home-learning');
+        }
+      } else {
+        setActiveView('onboarding-name');
+      }
     } catch (error) {
       const apiError = error as ApiError;
       console.warn('Unlock failed:', apiError);
-      setApiError(apiError.message);
+      // Format lockout message with minutes
+      let message = apiError.message;
+      if (apiError.status === 429 && apiError.retryAfterSeconds) {
+        const minutes = Math.ceil(apiError.retryAfterSeconds / 60);
+        message = `Too many tries. Please wait about ${minutes} minute${minutes !== 1 ? 's' : ''}.`;
+      }
+      setApiError(message);
     }
   };
 
@@ -503,8 +525,10 @@ export default function App() {
                 {/* 1. Unlock Screen */}
                 {activeView === 'unlock' && (
                   <UnlockScreen
-                    onPasscodeSet={handlePasscodeSet}
-                    onSkip={() => setActiveView('onboarding-name')}
+                    onSubmit={handleUnlockSubmit}
+                    error={activeView === 'unlock' ? apiError : null}
+                    busy={isLoading}
+                    onClearError={() => setApiError(null)}
                   />
                 )}
 

@@ -5,6 +5,7 @@ const TOKEN_KEY = 'wombatlas:v1:api-token';
 export interface ApiError {
   status: number;
   message: string;
+  retryAfterSeconds?: number;
 }
 
 export interface HealthResponse {
@@ -13,6 +14,7 @@ export interface HealthResponse {
 
 export interface User {
   id: string;
+  handle: string;
   name: string;
 }
 
@@ -30,12 +32,7 @@ export interface MeResponse {
   profile: Profile;
 }
 
-export interface SetupResponse {
-  token: string;
-  user: User;
-}
-
-export interface SessionResponse {
+export interface AuthResponse {
   token: string;
   user: User;
 }
@@ -111,13 +108,15 @@ async function request<T>(
 
     if (!response.ok) {
       let message = 'Request failed';
+      let retryAfterSeconds: number | undefined;
       try {
         const errorData = await response.json();
         message = errorData.error || message;
+        retryAfterSeconds = errorData.retryAfterSeconds;
       } catch {
         message = response.statusText || message;
       }
-      throw { status: response.status, message } as ApiError;
+      throw { status: response.status, message, retryAfterSeconds } as ApiError;
     }
 
     if (response.status === 204) {
@@ -137,30 +136,18 @@ export async function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/api/health', { method: 'GET' });
 }
 
-export async function setup(pin: string): Promise<SetupResponse> {
-  return request<SetupResponse>('/api/setup', {
+export async function register(handle: string, pin: string): Promise<AuthResponse> {
+  return request<AuthResponse>('/api/register', {
     method: 'POST',
-    body: JSON.stringify({ pin }),
+    body: JSON.stringify({ handle, pin }),
   });
 }
 
-export async function createSession(pin: string): Promise<SessionResponse> {
-  return request<SessionResponse>('/api/session', {
+export async function createSession(handle: string, pin: string): Promise<AuthResponse> {
+  return request<AuthResponse>('/api/session', {
     method: 'POST',
-    body: JSON.stringify({ pin }),
+    body: JSON.stringify({ handle, pin }),
   });
-}
-
-export async function setupOrLogin(pin: string): Promise<SessionResponse> {
-  try {
-    const result = await setup(pin);
-    return { token: result.token, user: result.user };
-  } catch (error) {
-    if (error && typeof error === 'object' && 'status' in error && (error as ApiError).status === 409) {
-      return createSession(pin);
-    }
-    throw error;
-  }
 }
 
 export async function getMe(): Promise<MeResponse> {

@@ -14,11 +14,11 @@ pub enum ApiError {
     #[error("Invalid credentials")]
     InvalidCredentials,
 
-    #[error("Setup already completed")]
-    SetupAlreadyCompleted,
+    #[error("Handle already taken")]
+    HandleTaken,
 
-    #[error("No user exists yet")]
-    NoUserExists,
+    #[error("Too many attempts: {retry_after_seconds} seconds")]
+    TooManyAttempts { retry_after_seconds: i64 },
 
     #[error("Invalid pin: {0}")]
     InvalidPin(String),
@@ -44,50 +44,68 @@ pub enum ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
+        let (status, message, retry_after) = match self {
             ApiError::Database(e) => {
                 tracing::error!("Database error: {}", e);
                 // Check for unique constraint violations
                 let msg = e.to_string();
                 if msg.contains("duplicate key") || msg.contains("unique constraint") {
                     if msg.contains("token_hash") {
-                        (StatusCode::CONFLICT, "Session conflict".to_string())
-                    } else if msg.contains("users_name_key") || msg.contains("name") {
-                        (StatusCode::CONFLICT, "Name already exists".to_string())
+                        (StatusCode::CONFLICT, "Session conflict".to_string(), None)
+                    } else if msg.contains("users_handle_key") {
+                        (StatusCode::CONFLICT, "handle already taken".to_string(), None)
                     } else {
-                        (StatusCode::CONFLICT, "Resource conflict".to_string())
+                        (StatusCode::CONFLICT, "Resource conflict".to_string(), None)
                     }
                 } else if msg.contains("foreign key") {
-                    (StatusCode::BAD_REQUEST, "Invalid reference".to_string())
+                    (StatusCode::BAD_REQUEST, "Invalid reference".to_string(), None)
                 } else if msg.contains("check constraint") {
                     if msg.contains("cycle_length") {
-                        (StatusCode::BAD_REQUEST, "cycleLength must be between 21 and 35".to_string())
+                        (StatusCode::BAD_REQUEST, "cycleLength must be between 21 and 35".to_string(), None)
                     } else if msg.contains("period_length") {
-                        (StatusCode::BAD_REQUEST, "periodLength must be between 2 and 7".to_string())
+                        (StatusCode::BAD_REQUEST, "periodLength must be between 2 and 7".to_string(), None)
                     } else if msg.contains("pain") {
-                        (StatusCode::BAD_REQUEST, "pain must be between 0 and 5".to_string())
+                        (StatusCode::BAD_REQUEST, "pain must be between 0 and 5".to_string(), None)
                     } else if msg.contains("cycle_day") {
-                        (StatusCode::BAD_REQUEST, "cycleDay must be between 1 and 35".to_string())
+                        (StatusCode::BAD_REQUEST, "cycleDay must be between 1 and 35".to_string(), None)
                     } else {
-                        (StatusCode::BAD_REQUEST, "Constraint violation".to_string())
+                        (StatusCode::BAD_REQUEST, "Constraint violation".to_string(), None)
                     }
                 } else {
-                    (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string())
+                    (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string(), None)
                 }
             }
-            ApiError::InvalidCredentials => (StatusCode::UNAUTHORIZED, "invalid credentials".to_string()),
-            ApiError::SetupAlreadyCompleted => (StatusCode::CONFLICT, "setup already completed".to_string()),
-            ApiError::NoUserExists => (StatusCode::CONFLICT, "no user exists yet".to_string()),
-            ApiError::InvalidPin(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::InvalidName(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string()),
-            ApiError::TokenExpired => (StatusCode::UNAUTHORIZED, "token expired".to_string()),
-            ApiError::EntryNotFound => (StatusCode::NOT_FOUND, "entry not found".to_string()),
-            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            ApiError::InvalidCredentials => (StatusCode::UNAUTHORIZED, "invalid credentials".to_string(), None),
+            ApiError::HandleTaken => (StatusCode::CONFLICT, "handle already taken".to_string(), None),
+            ApiError::TooManyAttempts { retry_after_seconds } => {
+                (StatusCode::TOO_MANY_REQUESTS, "too many attempts, try again later".to_string(), Some(retry_after_seconds))
+            }
+            ApiError::InvalidPin(msg) => (StatusCode::BAD_REQUEST, msg, None),
+            ApiError::InvalidName(msg) => (StatusCode::BAD_REQUEST, msg, None),
+            ApiError::Validation(msg) => (StatusCode::BAD_REQUEST, msg, None),
+            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string(), None),
+            ApiError::TokenExpired => (StatusCode::UNAUTHORIZED, "token expired".to_string(), None),
+            ApiError::EntryNotFound => (StatusCode::NOT_FOUND, "entry not found".to_string(), None),
+            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg, None),
         };
 
-        (status, Json(json!({ "error": message }))).into_response()
+        let mut response = (status, Json(json!({ "error": message }))).into_response();
+        if let Some(seconds) = retry_after {
+            response.headers_mut().insert(
+                axum::http::header::RETRY_AFTER,
+                axum::http::HeaderValue::from_str(&seconds.to_string()).unwrap(),
+            );
+            // Also include retryAfterSeconds in JSON body
+            let json_body = json!({ "error": message, "retryAfterSeconds": seconds });
+            response = (status, Json(json_body)).into_response();
+            if let Some(seconds) = retry_after {
+                response.headers_mut().insert(
+                    axum::http::header::RETRY_AFTER,
+                    axum::http::HeaderValue::from_str(&seconds.to_string()).unwrap(),
+                );
+            }
+        }
+        response
     }
 }
 

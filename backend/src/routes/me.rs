@@ -1,4 +1,4 @@
-use axum::{extract::{State, Extension}, routing::{get, put}, Json, Router};
+use axum::{extract::{State, Extension}, routing::get, Json, Router};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::NaiveDate;
@@ -14,6 +14,7 @@ pub struct MeResponse {
 #[derive(Serialize)]
 pub struct UserResponse {
     id: Uuid,
+    handle: String,
     name: String,
 }
 
@@ -61,12 +62,13 @@ async fn get_me(
     Extension(user_id): Extension<Uuid>,
 ) -> ApiResult<Json<MeResponse>> {
     // Get user
-    let user_row = sqlx::query("SELECT id, name FROM users WHERE id = $1")
+    let user_row = sqlx::query("SELECT id, handle, name FROM users WHERE id = $1")
         .bind(user_id)
         .fetch_one(&state.pool)
         .await?;
     let user = UserResponse {
         id: user_row.get("id"),
+        handle: user_row.get("handle"),
         name: user_row.get("name"),
     };
 
@@ -156,9 +158,8 @@ async fn put_me(
         match life_stage {
             Some(stage) => {
                 validate_life_stage(Some(&stage))?;
-                let db_stage = stage.replace('-', "_");
                 sqlx::query("UPDATE profiles SET life_stage = $1::life_stage WHERE user_id = $2")
-                    .bind(db_stage)
+                    .bind(stage)
                     .bind(user_id)
                     .execute(&state.pool)
                     .await?;

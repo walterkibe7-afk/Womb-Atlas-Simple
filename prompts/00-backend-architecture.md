@@ -20,14 +20,14 @@ User          Profile (1:1)      Entry (1:N)             Session (N:1)
 ──────────    ────────────       ─────────────────       ─────────────
 id            userId             userId                  id (token hash)
 name          lastPeriodStart?   entryDate (DATE)        userId
-pinHash       lifeStage? enum    cycleDay Int            createdAt
-createdAt     cycleLength 28     flow enum               expiresAt
-updatedAt     periodLength 5     pain Int [0..5]         (unique: token hash)
-              usesHormonalBC     symptoms String[]
-              hasCompletedOB     mood? enum
-                                 note? ≤2000
-                                 createdAt, updatedAt
-                                 unique(userId, entryDate)
+handle        lifeStage? enum    cycleDay Int            createdAt
+pinHash       cycleLength 28     flow enum               expiresAt
+failedAttempts periodLength 5    pain Int [0..5]         (unique: token hash)
+lockedUntil   usesHormonalBC     symptoms String[]
+createdAt     hasCompletedOB     mood? enum
+updatedAt                        note? ≤2000
+                                  createdAt, updatedAt
+                                  unique(userId, entryDate)
 ```
 
 Enums (both DB and API validation):
@@ -46,14 +46,15 @@ trusting the API is fine.
 
 Base: `http://localhost:4001`. auth = `Authorization: Bearer <token>`.
 All bodies JSON; errors `{ error: string }` with proper status codes.
+429 responses include `{ "error": "...", "retryAfterSeconds": N }` and a `Retry-After` header.
 
 | Method | Path | Auth | Body | Success | Notes |
 |---|---|---|---|---|---|
 | GET | `/api/health` | – | – | `{ ok: true }` | no DB dependency required |
-| POST | `/api/setup` | – | `{ pin }` (4–12 digits) | 201 `{ token, user {id, name: "" } }` | **first run only**; 409 if a user with pinHash exists |
-| POST | `/api/session` | – | `{ pin }` | 200 `{ token, user }` | unlock; 401 wrong pin; 409 no setup yet |
-| GET | `/api/me` | ✓ | – | `{ user {id,name}, profile {...} }` | profile defaults if unused |
-| PUT | `/api/me` | ✓ | any of `name?, lastPeriodStart? (YYYY-MM-DD or null), lifeStage?, cycleLength?, periodLength?, usesHormonalBirthControl?, hasCompletedOnboarding?` | `{ user, profile }` | clamps; `name: ""` rejected (name is REQUIRED) |
+| POST | `/api/register` | – | `{ handle, pin }` | 201 `{ token, user {id, handle, name: "" } }` | 400 invalid handle/pin; 409 handle taken |
+| POST | `/api/session` | – | `{ handle, pin }` | 200 `{ token, user {id, handle, name} }` | 401 invalid credentials; 429 locked |
+| GET | `/api/me` | ✓ | – | `{ user {id,handle,name}, profile {...} }` | profile defaults if unused |
+| PUT | `/api/me` | ✓ | any of `name?, lastPeriodStart?, lifeStage?, cycleLength?, periodLength?, usesHormonalBirthControl?, hasCompletedOnboarding?` | `{ user, profile }` | clamps; `name: ""` rejected; `handle` not accepted |
 | GET | `/api/entries` | ✓ | query `?from=YYYY-MM-DD&to=YYYY-MM-DD` (optional) | `{ entries: Entry[] }` | sorted entryDate DESC |
 | PUT | `/api/entries/:date` | ✓ | `{ cycleDay, flow, pain, symptoms, mood?, note? }` | 200 `{ entry }` | upsert whole-entry replacement for that date |
 | DELETE | `/api/entries/:date` | ✓ | – | `{ ok: true }` | |
@@ -67,6 +68,22 @@ Pin hashing: **Argon2id** via the pure-Rust `argon2` crate (OWASP baseline:
 m = 19 MiB, t = 2, p = 1), random 16-byte salt, stored as
 `argon2id$m=19456,t=2,p=1$<saltHex>$<keyHex>` — never the plain pin, never in
 logs or errors.
+
+Handle format: 3–24 chars, lowercase `a-z 0-9 . _ -`, first char letter or digit.
+Trimmed and lowercased server-side.
+
+Passcode: exactly 6 digits.
+
+Lockout: 5 consecutive wrong passcodes → locked 15 minutes. Atomic counter update.
+On success: reset `failed_attempts = 0, locked_until = NULL`.
+
+No account-existence timing leak at sign-in: unknown handle or legacy row runs
+one Argon2 verification against a fixed dummy hash, then returns identical 401.
+(Register necessarily reveals handle taken; accept that.)
+
+On every successful sign-in, delete that user's expired sessions
+(`DELETE FROM sessions WHERE user_id = $1 AND expires_at < now()`). Multiple
+live sessions per user (several devices) stay allowed.
 
 No comments endpoint, no review queue, no roles: **an entry is real the moment
 its PUT succeeds.** That is the whole "no steward" decision carried over.
@@ -90,10 +107,19 @@ backend/
   Cargo.toml, Cargo.lock        ← agent B3 (axum/tokio/sqlx/serde/…), extended by B2 for the seed bin
   src/main.rs, src/app.rs, …    ← agent B3 (axum server)
   src/seed.rs                   ← agent B2 (demo seeding via sqlx)
+  src/migrate.rs                ← agent B2 (migration runner)
+  src/auth.rs, error.rs, validate.rs
+  src/routes/auth.rs, me.rs     ← agent B5 (auth + accounts)
   migrations/0001_init.sql, …   ← agent B2 (sqlx migrations, plain SQL)
 src/lib/api.ts                 ← agent B4 (frontend fetch client)
-src/App.tsx (edits only)       ← agent B4
+src/App.tsx (edits only)       ← agent B4/B5
+src/components/onboarding/UnlockScreen.tsx ← agent B5
 ```
+
+Toolchain facts (updated 2026-11-08): the backend **builds and runs in a
+podman container** — `backend/Containerfile`, tagged `womb-atlas-backend`.
+No native MSVC Build Tools / Windows SDK / GNU toolchain is required on the
+host anymore. The DB answers on the host at `127.0.0.1:5433`.
 
 Toolchain facts (updated 2026-11-08): the backend **builds and runs in a
 podman container** — `backend/Containerfile`, tagged `womb-atlas-backend`.
@@ -108,6 +134,8 @@ host anymore. The DB answers on the host at `127.0.0.1:5433`.
    to end with curl against the live API
 4. `04-frontend-wiring.md` — frontend speaks to the API; localStorage code
    is NOT reintroduced (it never existed — clean pivot)
+5. `05-accounts.md`      — real accounts (register, sign-in with handle, lockout),
+   enum fixes, migrate/seed reproducibility, onboarding routing fix
 
 A privacy note to carry over verbatim: the API holds nothing about a user
 except her name, her cycle reference data, and her diary. Any future analytics

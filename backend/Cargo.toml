@@ -3,6 +3,10 @@ name = "womb-atlas-backend"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "womb_atlas_backend"
+path = "src/lib.rs"
+
 [dependencies]
 axum        = "0.7"
 tokio       = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
@@ -21,6 +25,11 @@ tracing     = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow      = "1"
 lazy_static = "1.4"
+
+# main binary
+[[bin]]
+name = "womb-atlas-backend"
+path = "src/main.rs"
 
 # seed binary
 [[bin]]

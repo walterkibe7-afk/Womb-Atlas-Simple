@@ -21,6 +21,7 @@ dedicated subagent. **The user calls the agents**, not the parent session.
 | 2 | `02-db-schema.md` | 4 tables, 3 enums, sqlx migrations, seed | `backend/migrations/`, `backend/src/seed.rs`, `backend/Cargo.toml` (seed-bin deps) |
 | 3 | `03-api-server.md` | Rust API implementing the full contract, curl-proven | `backend/src/**` (server), extends `backend/Cargo.toml` |
 | 4 | `04-frontend-wiring.md` | SPA talks to the API (token unlock, persistence) | `src/lib/api.ts`, `src/App.tsx` |
+| 5 | `05-accounts.md` | real accounts, enum fixes, migrate/seed from image, unlock→onboarding routing | `backend/migrations/0002_accounts.sql`, `backend/src/auth.rs`, `backend/src/error.rs`, `backend/src/validate.rs`, `backend/src/routes/auth.rs`, `backend/src/routes/me.rs`, `backend/src/seed.rs`, `backend/src/migrate.rs`, `backend/Containerfile`, `src/lib/api.ts`, `src/App.tsx`, `src/components/onboarding/UnlockScreen.tsx`, `AGENTS.md`, `prompts/00-backend-architecture.md`, `prompts/README.md`, `backend/README.md` |
 
  Unlike the earlier localStorage plan (archived in `archive-localstorage/`),
 these steps cannot run in parallel: each one consumes the previous agent's
