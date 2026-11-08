@@ -60,7 +60,7 @@ async fn list_entries(
 
     let mut query_builder = sqlx::QueryBuilder::new(
         r#"
-        SELECT entry_date, cycle_day, flow, pain, symptoms, mood, note, created_at, updated_at
+        SELECT entry_date, cycle_day, flow::text as flow, pain, symptoms, mood::text as mood, note, created_at, updated_at
         FROM entries
         WHERE user_id = "#
     );
@@ -120,7 +120,7 @@ async fn upsert_entry(
     let row = sqlx::query(
         r#"
         INSERT INTO entries (id, user_id, entry_date, cycle_day, flow, pain, symptoms, mood, note, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
+        VALUES ($1, $2, $3, $4, $5::flow, $6, $7, $8::mood, $9, now(), now())
         ON CONFLICT (user_id, entry_date) DO UPDATE SET
             cycle_day = EXCLUDED.cycle_day,
             flow = EXCLUDED.flow,
@@ -129,7 +129,7 @@ async fn upsert_entry(
             mood = EXCLUDED.mood,
             note = EXCLUDED.note,
             updated_at = now()
-        RETURNING entry_date, cycle_day, flow, pain, symptoms, mood, note, created_at, updated_at
+        RETURNING entry_date, cycle_day, flow::text as flow, pain, symptoms, mood::text as mood, note, created_at, updated_at
         "#,
     )
     .bind(Uuid::new_v4())

@@ -1,12 +1,15 @@
-use axum::{Router, middleware};
+use axum::{Router, middleware, http::Method};
 use tower_http::{cors::{CorsLayer, Any}, limit::RequestBodyLimitLayer};
 use crate::{state::AppState, routes::{health, auth, me, entries}};
 
 pub fn create_app(state: AppState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(state.allowed_origin.parse::<axum::http::HeaderValue>().unwrap())
-        .allow_methods(Any)
-        .allow_headers(Any)
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+        ])
         .allow_credentials(true);
 
     let auth_middleware = middleware::from_fn_with_state(state.clone(), auth::auth_middleware);

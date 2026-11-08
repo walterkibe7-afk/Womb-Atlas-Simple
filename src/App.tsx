@@ -1,17 +1,29 @@
-import React, { useState } from 'react';
-import { getSeedEntries } from './data/seedData';
-import { DailyEntry, UserProfile } from './types';
-import { getTodayIso, daysBackIso, calculateCycleDayFromDate } from './utils/cycle';
+import React, { useState, useEffect, useCallback } from 'react';
+import { DailyEntry, UserProfile, LifeStage, FlowLevel, Symptom, Mood } from './types';
+import { getTodayIso, daysBackIso, calculateCycleDayFromDate, toLocalIso } from './utils/cycle';
 import { HomeScreen } from './components/HomeScreen';
 import { LogScreen } from './components/LogScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { UnlockScreen } from './components/onboarding/UnlockScreen';
 import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
 import { DesktopApp } from './components/desktop/DesktopApp';
+import {
+  getHealth,
+  setupOrLogin,
+  getMe,
+  updateMe,
+  listEntries,
+  putEntry,
+  deleteEntry,
+  deleteSession,
+  loadToken,
+  clearToken,
+  setToken,
+  saveToken,
+  ApiError,
+} from './lib/api';
 
-// "Today" fixed once per session so all screens agree on the same day.
 const TODAY_ISO = getTodayIso();
-// Demo anchor: the default profile pretends a period started 2 days ago.
 const DEMO_PERIOD_START = daysBackIso(2);
 
 type ViewportMode = 'desktop' | 'mobile';
@@ -28,51 +40,231 @@ type ActiveViewKey =
 export default function App() {
   const [viewportMode, setViewportMode] = useState<ViewportMode>('desktop');
   const [activeView, setActiveView] = useState<ActiveViewKey>('home-phase');
-  const [entries, setEntries] = useState<DailyEntry[]>(() => getSeedEntries(TODAY_ISO));
+  const [entries, setEntries] = useState<DailyEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
 
-  // User Profile State
   const [userProfile, setUserProfile] = useState<UserProfile>({
     passcodeSet: false,
     passcode: undefined,
-    userName: 'Achieng',
-    lastPeriodStart: DEMO_PERIOD_START,    lifeStage: 'currently-cycling',
+    userName: '',
+    lastPeriodStart: undefined,
+    lifeStage: undefined,
     cycleLength: 28,
     periodLength: 5,
     usesHormonalBirthControl: false,
-    hasCompletedOnboarding: true,
+    hasCompletedOnboarding: false,
   });
 
-  const handleSaveEntry = (newEntryData: Omit<DailyEntry, 'id' | 'createdAt'>) => {
-    setEntries((prev) => {
-      const existingIndex = prev.findIndex((e) => e.date === newEntryData.date);
-      if (existingIndex >= 0) {
-        const updated = [...prev];
-        updated[existingIndex] = {
-          ...updated[existingIndex],
-          ...newEntryData,
-          createdAt: new Date().toISOString(),
-        };
-        return updated;
-      } else {
-        const created: DailyEntry = {
-          ...newEntryData,
-          id: `entry-${newEntryData.date}-${Date.now()}`,
-          createdAt: new Date().toISOString(),
-        };
-        return [created, ...prev];
+  const hydrateFromApi = useCallback(async () => {
+    setIsLoading(true);
+    setApiError(null);
+    try {
+      const health = await getHealth();
+      if (!health.ok) throw new Error('Health check failed');
+
+      const token = loadToken();
+      if (!token) {
+        setIsLoading(false);
+        setActiveView('unlock');
+        setViewportMode('mobile');
+        return;
       }
-    });
+
+      setToken(token);
+      const me = await getMe();
+      const entriesRes = await listEntries();
+
+      setUserProfile({
+        passcodeSet: true,
+        passcode: undefined,
+        userName: me.user.name,
+        lastPeriodStart: me.profile.lastPeriodStart,
+        lifeStage: me.profile.lifeStage as LifeStage | undefined,
+        cycleLength: me.profile.cycleLength,
+        periodLength: me.profile.periodLength,
+        usesHormonalBirthControl: me.profile.usesHormonalBirthControl,
+        hasCompletedOnboarding: me.profile.hasCompletedOnboarding,
+      });
+
+      const mappedEntries: DailyEntry[] = entriesRes.entries.map((e) => ({
+        id: `entry-${e.date}`,
+        date: e.date,
+        cycleDay: e.cycleDay,
+        flow: e.flow as FlowLevel,
+        pain: e.pain,
+        symptoms: e.symptoms as Symptom[],
+        mood: e.mood as Mood | undefined,
+        note: e.note,
+        createdAt: e.createdAt,
+      }));
+
+      setEntries(mappedEntries);
+
+      if (me.profile.hasCompletedOnboarding) {
+        if (me.profile.lastPeriodStart) {
+          setActiveView('home-phase');
+        } else {
+          setActiveView('home-learning');
+        }
+      } else {
+        setActiveView('onboarding-name');
+      }
+    } catch (error) {
+      const apiError = error as ApiError;
+      if (apiError.status === 401 || apiError.status === 0) {
+        clearToken();
+        setActiveView('unlock');
+        setViewportMode('mobile');
+      } else {
+        console.warn('API error during hydration:', apiError);
+        setApiError(apiError.message);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    hydrateFromApi();
+  }, [hydrateFromApi]);
+
+  const handleSaveEntry = async (newEntryData: Omit<DailyEntry, 'id' | 'createdAt'>) => {
+    try {
+      const response = await putEntry(newEntryData.date, {
+        cycleDay: newEntryData.cycleDay,
+        flow: newEntryData.flow,
+        pain: newEntryData.pain,
+        symptoms: newEntryData.symptoms,
+        mood: newEntryData.mood,
+        note: newEntryData.note,
+      });
+
+      const apiEntry = response.entry;
+      const mappedEntry: DailyEntry = {
+        id: `entry-${apiEntry.date}`,
+        date: apiEntry.date,
+        cycleDay: apiEntry.cycleDay,
+        flow: apiEntry.flow as FlowLevel,
+        pain: apiEntry.pain,
+        symptoms: apiEntry.symptoms as Symptom[],
+        mood: apiEntry.mood as Mood | undefined,
+        note: apiEntry.note,
+        createdAt: apiEntry.createdAt,
+      };
+
+      setEntries((prev) => {
+        const existingIndex = prev.findIndex((e) => e.date === mappedEntry.date);
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = mappedEntry;
+          return updated;
+        } else {
+          return [mappedEntry, ...prev];
+        }
+      });
+    } catch (error) {
+      const apiError = error as ApiError;
+      console.warn('Failed to save entry:', apiError);
+      setApiError(apiError.message);
+    }
   };
 
-  const handleUpdatePeriodStart = (dateStr: string) => {
-    setUserProfile((prev) => ({
-      ...prev,
-      lastPeriodStart: dateStr,
-    }));
-    setActiveView('home-phase');
+  const handleUpdatePeriodStart = async (dateStr: string) => {
+    try {
+      await updateMe({ lastPeriodStart: dateStr });
+      setUserProfile((prev) => ({ ...prev, lastPeriodStart: dateStr }));
+      setActiveView('home-phase');
+    } catch (error) {
+      const apiError = error as ApiError;
+      console.warn('Failed to update period start:', apiError);
+      setApiError(apiError.message);
+    }
   };
 
-  const handleResetFirstLogin = () => {
+  const handlePasscodeSet = async (pin?: string) => {
+    if (!pin) return;
+    try {
+      const response = await setupOrLogin(pin);
+      saveToken(response.token);
+      setToken(response.token);
+
+      const me = await getMe();
+      const entriesRes = await listEntries();
+
+      setUserProfile({
+        passcodeSet: true,
+        passcode: undefined,
+        userName: me.user.name,
+        lastPeriodStart: me.profile.lastPeriodStart,
+        lifeStage: me.profile.lifeStage as LifeStage | undefined,
+        cycleLength: me.profile.cycleLength,
+        periodLength: me.profile.periodLength,
+        usesHormonalBirthControl: me.profile.usesHormonalBirthControl,
+        hasCompletedOnboarding: me.profile.hasCompletedOnboarding,
+      });
+
+      const mappedEntries: DailyEntry[] = entriesRes.entries.map((e) => ({
+        id: `entry-${e.date}`,
+        date: e.date,
+        cycleDay: e.cycleDay,
+        flow: e.flow as FlowLevel,
+        pain: e.pain,
+        symptoms: e.symptoms as Symptom[],
+        mood: e.mood as Mood | undefined,
+        note: e.note,
+        createdAt: e.createdAt,
+      }));
+
+      setEntries(mappedEntries);
+      setActiveView('onboarding-name');
+    } catch (error) {
+      const apiError = error as ApiError;
+      console.warn('Unlock failed:', apiError);
+      setApiError(apiError.message);
+    }
+  };
+
+  const handleOnboardingComplete = async (data: Partial<UserProfile>) => {
+    try {
+      const patch: Partial<UserProfile> & { name?: string } = {
+        userName: data.userName?.trim(),
+        lastPeriodStart: data.lastPeriodStart,
+        lifeStage: data.lifeStage,
+        cycleLength: data.cycleLength,
+        periodLength: data.periodLength,
+        usesHormonalBirthControl: data.usesHormonalBirthControl,
+        hasCompletedOnboarding: true,
+      };
+
+      await updateMe(patch);
+
+      setUserProfile((prev) => ({
+        ...prev,
+        ...data,
+        userName: data.userName?.trim() || prev.userName,
+        hasCompletedOnboarding: true,
+      }));
+
+      if (data.lastPeriodStart) {
+        setActiveView('home-phase');
+      } else {
+        setActiveView('home-learning');
+      }
+    } catch (error) {
+      const apiError = error as ApiError;
+      console.warn('Onboarding complete failed:', apiError);
+      setApiError(apiError.message);
+    }
+  };
+
+  const handleResetFirstLogin = async () => {
+    try {
+      await deleteSession();
+    } catch {
+      // Ignore server errors on logout
+    }
+    clearToken();
     setUserProfile({
       passcodeSet: false,
       passcode: undefined,
@@ -84,34 +276,12 @@ export default function App() {
       usesHormonalBirthControl: false,
       hasCompletedOnboarding: false,
     });
+    setEntries([]);
     setViewportMode('mobile');
     setActiveView('unlock');
-  };
-  const handlePasscodeSet = (pin?: string) => {
-    setUserProfile((prev) => ({
-      ...prev,
-      passcodeSet: Boolean(pin),
-      passcode: pin,
-    }));
-    setActiveView('onboarding-name');
+    console.log('Full data reset is an API-side operation; session cleared locally.');
   };
 
-  const handleOnboardingComplete = (data: Partial<UserProfile>) => {
-    setUserProfile((prev) => ({
-      ...prev,
-      ...data,
-      hasCompletedOnboarding: true,
-    }));
-    // Land directly on home: phase-mode if date given, learning-mode if not
-    if (data.lastPeriodStart) {
-      setActiveView('home-phase');
-    } else {
-      setActiveView('home-learning');
-    }
-  };
-
-  // Derive effective profile based on activeView quick toggle (reviewer preview).
-  // Without a real period start, previews fall back to a dynamic 2-days-ago date.
   const effectiveProfile: UserProfile = {
     ...userProfile,
     lastPeriodStart:
@@ -127,6 +297,14 @@ export default function App() {
     effectiveProfile.cycleLength
   );
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#EDE7DF] flex items-center justify-center">
+        <div className="font-serif text-xl text-[#4A2B33]">Womb Atlas</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#EDE7DF] flex flex-col font-sans selection:bg-[#C99A86]/20">
       {/* Top Testing & Viewport Mode Navigation Bar */}
@@ -140,7 +318,7 @@ export default function App() {
               Womb Atlas
             </span>
             <span className="text-xs text-[#7A5862]">
-              · First-login flow &amp; desktop design
+              · First-login flow & desktop design
             </span>
           </div>
 

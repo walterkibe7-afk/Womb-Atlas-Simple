@@ -73,7 +73,7 @@ async fn get_me(
     // Get or create profile
     let profile_row = sqlx::query(
         r#"
-        SELECT last_period_start, life_stage, cycle_length, period_length, uses_hormonal_birth_control, has_completed_onboarding
+        SELECT last_period_start, life_stage::text as life_stage, cycle_length, period_length, uses_hormonal_birth_control, has_completed_onboarding
         FROM profiles WHERE user_id = $1
         "#,
     )
