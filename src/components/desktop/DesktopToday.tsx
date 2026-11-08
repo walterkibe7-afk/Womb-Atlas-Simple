@@ -8,8 +8,6 @@ import {
   generateGentleInsight,
   summarizeEntry,
   calculateCycleDayFromDate,
-  getTodayIso,
-  toLocalIso,
 } from '../../utils/cycle';
 
 interface DesktopTodayProps {
@@ -33,7 +31,7 @@ export const DesktopToday: React.FC<DesktopTodayProps> = ({
   const currentCycleDay = hasPeriodStart
     ? calculateCycleDayFromDate(
         userProfile?.lastPeriodStart,
-        getTodayIso(),
+        '2026-11-07',
         userProfile?.cycleLength || 28
       ) || 1
     : null;
@@ -50,7 +48,7 @@ export const DesktopToday: React.FC<DesktopTodayProps> = ({
     ? getPhaseDetails(currentPhase, currentCycleDay)
     : null;
 
-  const effectiveUserName = userName || userProfile?.userName || '';
+  const effectiveUserName = userName || userProfile?.userName || 'Achieng';
   const greeting = getGreeting(effectiveUserName);
   const gentleInsight = generateGentleInsight(
     entries,
@@ -58,7 +56,7 @@ export const DesktopToday: React.FC<DesktopTodayProps> = ({
     userProfile?.usesHormonalBirthControl,
     userProfile?.lifeStage
   );
-  const todayEntry = entries.find((e) => e.date === getTodayIso());
+  const todayEntry = entries.find((e) => e.date === '2026-11-07');
 
   const phases = [
     {
@@ -87,23 +85,14 @@ export const DesktopToday: React.FC<DesktopTodayProps> = ({
     },
   ];
 
-  // Inline calendar helpers (current month, dynamic)
-  const today = new Date(`${getTodayIso()}T00:00:00`);
-  const firstDay = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    1
-  ).getDay();
-  const daysInMonth = new Date(
-    today.getFullYear(),
-    today.getMonth() + 1,
-    0
-  ).getDate();
+  // Inline calendar helpers
+  const calendarYear = 2026;
+  const calendarMonth = 10;
+  const firstDay = new Date(calendarYear, calendarMonth, 1).getDay();
+  const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
 
   const handleSelectInlineDate = (dayNum: number) => {
-    const dateStr = toLocalIso(
-      new Date(today.getFullYear(), today.getMonth(), dayNum)
-    );
+    const dateStr = `2026-11-${String(dayNum).padStart(2, '0')}`;
     if (onUpdatePeriodStart) {
       onUpdatePeriodStart(dateStr);
     }
@@ -278,8 +267,7 @@ export const DesktopToday: React.FC<DesktopTodayProps> = ({
                         ))}
                         {Array.from({ length: daysInMonth }).map((_, i) => {
                           const dayNum = i + 1;
-                          const isFuture =
-                            new Date(today.getFullYear(), today.getMonth(), dayNum) > today;
+                          const isFuture = dayNum > 7;
                           return (
                             <button
                               key={`desk-in-day-${dayNum}`}

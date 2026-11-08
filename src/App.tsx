@@ -1,292 +1,123 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { DailyEntry, UserProfile, LifeStage, FlowLevel, Symptom, Mood } from './types';
-import { getTodayIso, daysBackIso, calculateCycleDayFromDate, toLocalIso } from './utils/cycle';
+import React, { useState } from 'react';
+import { initialEntries } from './data/seedData';
+import { DailyEntry, UserProfile, AuthUser } from './types';
 import { HomeScreen } from './components/HomeScreen';
 import { LogScreen } from './components/LogScreen';
 import { HistoryScreen } from './components/HistoryScreen';
 import { UnlockScreen } from './components/onboarding/UnlockScreen';
 import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
 import { DesktopApp } from './components/desktop/DesktopApp';
-import {
-  getHealth,
-  register,
-  createSession,
-  getMe,
-  updateMe,
-  listEntries,
-  putEntry,
-  deleteEntry,
-  deleteSession,
-  loadToken,
-  clearToken,
-  setToken,
-  saveToken,
-  ApiError,
-} from './lib/api';
-
-const TODAY_ISO = getTodayIso();
-const DEMO_PERIOD_START = daysBackIso(2);
+import { DesktopOnboarding, DesktopStepKey } from './components/desktop/DesktopOnboarding';
+import { OnboardingStepKey } from './components/onboarding/OnboardingFlow';
+import { AuthPage } from './components/auth/AuthPage';
+import { AccountMenuModal } from './components/auth/AccountMenuModal';
 
 type ViewportMode = 'desktop' | 'mobile';
 type ActiveViewKey =
-  | 'unlock'
-  | 'onboarding-name'
-  | 'onboarding-period'
-  | 'onboarding-rhythm'
+  | DesktopStepKey
   | 'home-phase'
   | 'home-learning'
   | 'log'
-  | 'history';
+  | 'history'
+  | 'auth-login'
+  | 'auth-signup';
+
+const VIEW_TO_ONBOARDING: Record<DesktopStepKey, OnboardingStepKey> = {
+  'unlock': 'privacy',
+  'onboarding-privacy': 'privacy',
+  'onboarding-social': 'social-intro',
+  'onboarding-discovery': 'discovery',
+  'onboarding-birth-year': 'birth-year',
+  'onboarding-measurements': 'body-measurements',
+  'onboarding-knowledge': 'period-knowledge',
+  'onboarding-feelings': 'feelings',
+  'onboarding-regularity': 'period-regularity',
+  'onboarding-period': 'period-start',
+  'onboarding-rhythm': 'rhythm',
+  'onboarding-birth-control': 'birth-control',
+  'onboarding-health-conditions': 'health-conditions',
+  'onboarding-discharge': 'discharge',
+  'onboarding-lifestyle': 'lifestyle-impacts',
+  'onboarding-pledge': 'pledge-commitment',
+  'onboarding-security': 'security-cert',
+  'onboarding-notifications': 'notifications',
+  'onboarding-loading': 'lens-loading',
+  'onboarding-plan': 'plan-pricing',
+};
+
+const ONBOARDING_TO_VIEW: Record<OnboardingStepKey, DesktopStepKey> = {
+  'privacy': 'onboarding-privacy',
+  'social-intro': 'onboarding-social',
+  'discovery': 'onboarding-discovery',
+  'birth-year': 'onboarding-birth-year',
+  'body-measurements': 'onboarding-measurements',
+  'period-knowledge': 'onboarding-knowledge',
+  'feelings': 'onboarding-feelings',
+  'period-regularity': 'onboarding-regularity',
+  'period-start': 'onboarding-period',
+  'rhythm': 'onboarding-rhythm',
+  'birth-control': 'onboarding-birth-control',
+  'health-conditions': 'onboarding-health-conditions',
+  'discharge': 'onboarding-discharge',
+  'lifestyle-impacts': 'onboarding-lifestyle',
+  'pledge-commitment': 'onboarding-pledge',
+  'security-cert': 'onboarding-security',
+  'notifications': 'onboarding-notifications',
+  'lens-loading': 'onboarding-loading',
+  'plan-pricing': 'onboarding-plan',
+};
 
 export default function App() {
   const [viewportMode, setViewportMode] = useState<ViewportMode>('desktop');
-  const [activeView, setActiveView] = useState<ActiveViewKey>('home-phase');
-  const [entries, setEntries] = useState<DailyEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [apiError, setApiError] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<ActiveViewKey>('unlock');
+  const [entries, setEntries] = useState<DailyEntry[]>(initialEntries);
+  const [currentUser, setCurrentUser] = useState<AuthUser | undefined>(undefined);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
 
+  // User Profile State
   const [userProfile, setUserProfile] = useState<UserProfile>({
     passcodeSet: false,
     passcode: undefined,
-    userName: '',
-    lastPeriodStart: undefined,
-    lifeStage: undefined,
+    userName: 'Achieng',
+    lastPeriodStart: '2026-11-05', // 2 days ago = Day 3
+    lifeStage: 'currently-cycling',
     cycleLength: 28,
     periodLength: 5,
     usesHormonalBirthControl: false,
     hasCompletedOnboarding: false,
   });
 
-  const hydrateFromServer = useCallback(async () => {
-    setIsLoading(true);
-    setApiError(null);
-    try {
-      const health = await getHealth();
-      if (!health.ok) throw new Error('Health check failed');
-
-      const token = loadToken();
-      if (!token) {
-        setIsLoading(false);
-        setActiveView('unlock');
-        setViewportMode('mobile');
-        return;
-      }
-
-      setToken(token);
-      const me = await getMe();
-      const entriesRes = await listEntries();
-
-      setUserProfile({
-        passcodeSet: true,
-        passcode: undefined,
-        userName: me.user.name,
-        lastPeriodStart: me.profile.lastPeriodStart,
-        lifeStage: me.profile.lifeStage as LifeStage | undefined,
-        cycleLength: me.profile.cycleLength,
-        periodLength: me.profile.periodLength,
-        usesHormonalBirthControl: me.profile.usesHormonalBirthControl,
-        hasCompletedOnboarding: me.profile.hasCompletedOnboarding,
-      });
-
-      const mappedEntries: DailyEntry[] = entriesRes.entries.map((e) => ({
-        id: `entry-${e.date}`,
-        date: e.date,
-        cycleDay: e.cycleDay,
-        flow: e.flow as FlowLevel,
-        pain: e.pain,
-        symptoms: e.symptoms as Symptom[],
-        mood: e.mood as Mood | undefined,
-        note: e.note,
-        createdAt: e.createdAt,
-      }));
-
-      setEntries(mappedEntries);
-
-      if (me.profile.hasCompletedOnboarding) {
-        if (me.profile.lastPeriodStart) {
-          setActiveView('home-phase');
-        } else {
-          setActiveView('home-learning');
-        }
+  const handleSaveEntry = (newEntryData: Omit<DailyEntry, 'id' | 'createdAt'>) => {
+    setEntries((prev) => {
+      const existingIndex = prev.findIndex((e) => e.date === newEntryData.date);
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        updated[existingIndex] = {
+          ...updated[existingIndex],
+          ...newEntryData,
+          createdAt: new Date().toISOString(),
+        };
+        return updated;
       } else {
-        setActiveView('onboarding-name');
+        const created: DailyEntry = {
+          ...newEntryData,
+          id: `entry-${newEntryData.date}-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+        };
+        return [created, ...prev];
       }
-    } catch (error) {
-      const apiError = error as ApiError;
-      if (apiError.status === 401 || apiError.status === 0) {
-        clearToken();
-        setActiveView('unlock');
-        setViewportMode('mobile');
-      } else {
-        console.warn('API error during hydration:', apiError);
-        setApiError(apiError.message);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    hydrateFromServer();
-  }, [hydrateFromServer]);
-
-  const handleSaveEntry = async (newEntryData: Omit<DailyEntry, 'id' | 'createdAt'>) => {
-    try {
-      const response = await putEntry(newEntryData.date, {
-        cycleDay: newEntryData.cycleDay,
-        flow: newEntryData.flow,
-        pain: newEntryData.pain,
-        symptoms: newEntryData.symptoms,
-        mood: newEntryData.mood,
-        note: newEntryData.note,
-      });
-
-      const apiEntry = response.entry;
-      const mappedEntry: DailyEntry = {
-        id: `entry-${apiEntry.date}`,
-        date: apiEntry.date,
-        cycleDay: apiEntry.cycleDay,
-        flow: apiEntry.flow as FlowLevel,
-        pain: apiEntry.pain,
-        symptoms: apiEntry.symptoms as Symptom[],
-        mood: apiEntry.mood as Mood | undefined,
-        note: apiEntry.note,
-        createdAt: apiEntry.createdAt,
-      };
-
-      setEntries((prev) => {
-        const existingIndex = prev.findIndex((e) => e.date === mappedEntry.date);
-        if (existingIndex >= 0) {
-          const updated = [...prev];
-          updated[existingIndex] = mappedEntry;
-          return updated;
-        } else {
-          return [mappedEntry, ...prev];
-        }
-      });
-    } catch (error) {
-      const apiError = error as ApiError;
-      console.warn('Failed to save entry:', apiError);
-      setApiError(apiError.message);
-    }
+    });
   };
 
-  const handleUpdatePeriodStart = async (dateStr: string) => {
-    try {
-      await updateMe({ lastPeriodStart: dateStr });
-      setUserProfile((prev) => ({ ...prev, lastPeriodStart: dateStr }));
-      setActiveView('home-phase');
-    } catch (error) {
-      const apiError = error as ApiError;
-      console.warn('Failed to update period start:', apiError);
-      setApiError(apiError.message);
-    }
+  const handleUpdatePeriodStart = (dateStr: string) => {
+    setUserProfile((prev) => ({
+      ...prev,
+      lastPeriodStart: dateStr,
+    }));
+    setActiveView('home-phase');
   };
 
-  const handleUnlockSubmit = async (mode: 'register' | 'signin', handle: string, pin: string) => {
-    try {
-      let response;
-      if (mode === 'register') {
-        response = await register(handle, pin);
-      } else {
-        response = await createSession(handle, pin);
-      }
-      saveToken(response.token);
-      setToken(response.token);
-
-      // Reuse hydrateFromServer logic for consistent routing
-      const me = await getMe();
-      const entriesRes = await listEntries();
-
-      setUserProfile({
-        passcodeSet: true,
-        passcode: undefined,
-        userName: me.user.name,
-        lastPeriodStart: me.profile.lastPeriodStart,
-        lifeStage: me.profile.lifeStage as LifeStage | undefined,
-        cycleLength: me.profile.cycleLength,
-        periodLength: me.profile.periodLength,
-        usesHormonalBirthControl: me.profile.usesHormonalBirthControl,
-        hasCompletedOnboarding: me.profile.hasCompletedOnboarding,
-      });
-
-      const mappedEntries: DailyEntry[] = entriesRes.entries.map((e) => ({
-        id: `entry-${e.date}`,
-        date: e.date,
-        cycleDay: e.cycleDay,
-        flow: e.flow as FlowLevel,
-        pain: e.pain,
-        symptoms: e.symptoms as Symptom[],
-        mood: e.mood as Mood | undefined,
-        note: e.note,
-        createdAt: e.createdAt,
-      }));
-
-      setEntries(mappedEntries);
-
-      // Route based on onboarding completion, just like hydration does
-      if (me.profile.hasCompletedOnboarding) {
-        if (me.profile.lastPeriodStart) {
-          setActiveView('home-phase');
-        } else {
-          setActiveView('home-learning');
-        }
-      } else {
-        setActiveView('onboarding-name');
-      }
-    } catch (error) {
-      const apiError = error as ApiError;
-      console.warn('Unlock failed:', apiError);
-      // Format lockout message with minutes
-      let message = apiError.message;
-      if (apiError.status === 429 && apiError.retryAfterSeconds) {
-        const minutes = Math.ceil(apiError.retryAfterSeconds / 60);
-        message = `Too many tries. Please wait about ${minutes} minute${minutes !== 1 ? 's' : ''}.`;
-      }
-      setApiError(message);
-    }
-  };
-
-  const handleOnboardingComplete = async (data: Partial<UserProfile>) => {
-    try {
-      const patch: Partial<UserProfile> & { name?: string } = {
-        userName: data.userName?.trim(),
-        lastPeriodStart: data.lastPeriodStart,
-        lifeStage: data.lifeStage,
-        cycleLength: data.cycleLength,
-        periodLength: data.periodLength,
-        usesHormonalBirthControl: data.usesHormonalBirthControl,
-        hasCompletedOnboarding: true,
-      };
-
-      await updateMe(patch);
-
-      setUserProfile((prev) => ({
-        ...prev,
-        ...data,
-        userName: data.userName?.trim() || prev.userName,
-        hasCompletedOnboarding: true,
-      }));
-
-      if (data.lastPeriodStart) {
-        setActiveView('home-phase');
-      } else {
-        setActiveView('home-learning');
-      }
-    } catch (error) {
-      const apiError = error as ApiError;
-      console.warn('Onboarding complete failed:', apiError);
-      setApiError(apiError.message);
-    }
-  };
-
-  const handleResetFirstLogin = async () => {
-    try {
-      await deleteSession();
-    } catch {
-      // Ignore server errors on logout
-    }
-    clearToken();
+  const handleResetFirstLogin = () => {
     setUserProfile({
       passcodeSet: false,
       passcode: undefined,
@@ -298,41 +129,75 @@ export default function App() {
       usesHormonalBirthControl: false,
       hasCompletedOnboarding: false,
     });
-    setEntries([]);
-    setViewportMode('mobile');
+    setCurrentUser(undefined);
     setActiveView('unlock');
-    console.log('Full data reset is an API-side operation; session cleared locally.');
   };
 
+  const handlePasscodeSet = (pin?: string) => {
+    setUserProfile((prev) => ({
+      ...prev,
+      passcodeSet: Boolean(pin),
+      passcode: pin,
+    }));
+    setActiveView('onboarding-privacy');
+  };
+
+  const handleOnboardingComplete = (data: Partial<UserProfile>) => {
+    setUserProfile((prev) => ({
+      ...prev,
+      ...data,
+      hasCompletedOnboarding: true,
+    }));
+    // Land directly on home: phase-mode if date given, learning-mode if not
+    if (data.lastPeriodStart) {
+      setActiveView('home-phase');
+    } else {
+      setActiveView('home-learning');
+    }
+  };
+
+  const handleAuthSuccess = (user: AuthUser, authMode?: 'login' | 'signup') => {
+    setCurrentUser(user);
+    setUserProfile((prev) => ({
+      ...prev,
+      userName: user.name || prev.userName || 'Achieng',
+      hasCompletedOnboarding: authMode === 'signup' ? false : prev.hasCompletedOnboarding,
+    }));
+
+    // If new signup or first login, take the user through the first-login sequence!
+    if (authMode === 'signup' || !userProfile.hasCompletedOnboarding) {
+      setActiveView('unlock');
+    } else {
+      setActiveView('home-phase');
+    }
+  };
+
+  const handleSignOut = () => {
+    setCurrentUser(undefined);
+  };
+
+  const todayEntry = entries.find((e) => e.date === '2026-11-07');
+
+  // Derive effective profile based on activeView quick toggle
   const effectiveProfile: UserProfile = {
     ...userProfile,
+    userName: currentUser?.name || userProfile.userName || 'Achieng',
+    currentUser,
     lastPeriodStart:
       activeView === 'home-learning'
         ? undefined
-        : userProfile.lastPeriodStart || DEMO_PERIOD_START,
+        : userProfile.lastPeriodStart || '2026-11-05',
   };
 
-  const todayEntry = entries.find((e) => e.date === TODAY_ISO);
-  const todayCycleDay = calculateCycleDayFromDate(
-    effectiveProfile.lastPeriodStart,
-    TODAY_ISO,
-    effectiveProfile.cycleLength
-  );
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#EDE7DF] flex items-center justify-center">
-        <div className="font-serif text-xl text-[#4A2B33]">Womb Atlas</div>
-      </div>
-    );
-  }
+  const isFirstLoginStep =
+    activeView === 'unlock' || activeView.startsWith('onboarding-');
 
   return (
     <div className="min-h-screen bg-[#EDE7DF] flex flex-col font-sans selection:bg-[#C99A86]/20">
       {/* Top Testing & Viewport Mode Navigation Bar */}
       <nav
         aria-label="Viewport Switcher"
-        className="w-full bg-[#FAF6F0] border-b border-[#E3D7CB] py-2 px-4 z-40 sticky top-0 shadow-xs"
+        className="w-full bg-[#FAF6F0] border-b border-[#E3D7CB] py-2.5 px-4 z-40 sticky top-0 shadow-xs"
       >
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -340,12 +205,12 @@ export default function App() {
               Womb Atlas
             </span>
             <span className="text-xs text-[#7A5862]">
-              · First-login flow & desktop design
+              · Reproductive health tracker &amp; sanctuary
             </span>
           </div>
 
           {/* Quick Review Screen Switcher */}
-          <div className="flex items-center gap-1.5 flex-wrap justify-center">
+          <div className="flex items-center gap-2 flex-wrap justify-center">
             {/* Viewport switcher */}
             <div className="flex items-center gap-1 bg-[#EFE7DE] p-0.5 rounded-full border border-[#DFD3C5]">
               <button
@@ -370,78 +235,83 @@ export default function App() {
               </button>
             </div>
 
-            {/* Reset flow button */}
+            {/* Auth status indicator pill */}
+            <button
+              onClick={() => setAccountModalOpen(true)}
+              className="text-xs text-[#4A2B33] bg-[#FAF6F0] hover:bg-[#EFE7DE] px-3 py-1 rounded-full border border-[#EADBCE] font-medium transition-colors flex items-center gap-1.5"
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  currentUser ? 'bg-[#A8B5A2]' : 'bg-[#C99A86]'
+                }`}
+              ></span>
+              <span>
+                {currentUser
+                  ? `${currentUser.name} (${currentUser.provider})`
+                  : 'Sanctuary (Guest)'}
+              </span>
+            </button>
+
+            {/* Walkthrough CTA button */}
             <button
               onClick={handleResetFirstLogin}
               className="text-xs text-[#9F6E5A] bg-[#F6EDE8] hover:bg-[#EADBCE] px-3 py-1 rounded-full border border-[#EADBCE] font-medium transition-colors"
             >
-              Reset first-run flow
+              Restart first-login flow
             </button>
           </div>
         </div>
 
-        {/* Quick Jump Bar for all First-Login Screens */}
-        <div className="max-w-7xl mx-auto pt-2 pb-0.5 flex items-center gap-1 overflow-x-auto text-[11px]">
-          <span className="text-[#7A5862] font-medium whitespace-nowrap mr-1">
-            Flow preview:
+        {/* Quick Stepper Bar for First-Login Steps & Sanctuary Views */}
+        <div className="max-w-7xl mx-auto pt-2.5 pb-1 flex items-center gap-1.5 overflow-x-auto text-[11px]">
+          <span className="text-[#4A2B33] font-medium whitespace-nowrap bg-[#EFE7DE] px-2 py-0.5 rounded-md mr-1">
+            First-login steps:
+          </span>
+
+          {[
+            { id: 'unlock', label: '1. Lock' },
+            { id: 'onboarding-privacy', label: '2. Privacy' },
+            { id: 'onboarding-social', label: '3. Story' },
+            { id: 'onboarding-discovery', label: '4. Found us' },
+            { id: 'onboarding-birth-year', label: '5. Birth' },
+            { id: 'onboarding-measurements', label: '6. Body' },
+            { id: 'onboarding-knowledge', label: '7. Knowledge' },
+            { id: 'onboarding-feelings', label: '8. Feelings' },
+            { id: 'onboarding-regularity', label: '9. Regularity' },
+            { id: 'onboarding-period', label: '10. Period' },
+            { id: 'onboarding-rhythm', label: '11. Rhythm' },
+            { id: 'onboarding-birth-control', label: '12. Birth control' },
+            { id: 'onboarding-health-conditions', label: '13. Health' },
+            { id: 'onboarding-discharge', label: '14. Discharge' },
+            { id: 'onboarding-lifestyle', label: '15. Symptoms' },
+            { id: 'onboarding-pledge', label: '16. Pledge' },
+            { id: 'onboarding-security', label: '17. Safe' },
+            { id: 'onboarding-notifications', label: '18. Remind' },
+            { id: 'onboarding-loading', label: '19. Lens' },
+            { id: 'onboarding-plan', label: '20. Plan' },
+          ].map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setActiveView(s.id as DesktopStepKey)}
+              className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors font-medium ${
+                activeView === s.id
+                  ? 'bg-[#4A2B33] text-[#F7F3EC]'
+                  : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+
+          <span className="text-[#DFD3C5] mx-1">|</span>
+
+          {/* Landing and App Views */}
+          <span className="text-[#7A5862] font-medium whitespace-nowrap mr-0.5">
+            After onboarding:
           </span>
           <button
-            onClick={() => {
-              setViewportMode('mobile');
-              setActiveView('unlock');
-            }}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'unlock' && viewportMode === 'mobile'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            1. Unlock (First run)
-          </button>
-          <button
-            onClick={() => {
-              setViewportMode('mobile');
-              setActiveView('onboarding-name');
-            }}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'onboarding-name' && viewportMode === 'mobile'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            2a. Name
-          </button>
-          <button
-            onClick={() => {
-              setViewportMode('mobile');
-              setActiveView('onboarding-period');
-            }}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'onboarding-period' && viewportMode === 'mobile'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            2b. Period start
-          </button>
-          <button
-            onClick={() => {
-              setViewportMode('mobile');
-              setActiveView('onboarding-rhythm');
-            }}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'onboarding-rhythm' && viewportMode === 'mobile'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            2c. Rhythm
-          </button>
-          <button
-            onClick={() => {
-              setActiveView('home-phase');
-            }}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
+            onClick={() => setActiveView('home-phase')}
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
               activeView === 'home-phase'
                 ? 'bg-[#4A2B33] text-[#F7F3EC]'
                 : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
@@ -450,10 +320,8 @@ export default function App() {
             3. Landing (Phase-mode)
           </button>
           <button
-            onClick={() => {
-              setActiveView('home-learning');
-            }}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
+            onClick={() => setActiveView('home-learning')}
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
               activeView === 'home-learning'
                 ? 'bg-[#4A2B33] text-[#F7F3EC]'
                 : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
@@ -461,11 +329,33 @@ export default function App() {
           >
             3. Landing (Learning-mode)
           </button>
+
+          <span className="text-[#DFD3C5] mx-1">|</span>
+
+          {/* Auth & Logging */}
           <button
-            onClick={() => {
-              setActiveView('log');
-            }}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
+            onClick={() => setActiveView('auth-login')}
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
+              activeView === 'auth-login'
+                ? 'bg-[#4A2B33] text-[#F7F3EC]'
+                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
+            }`}
+          >
+            Sign in
+          </button>
+          <button
+            onClick={() => setActiveView('auth-signup')}
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
+              activeView === 'auth-signup'
+                ? 'bg-[#4A2B33] text-[#F7F3EC]'
+                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
+            }`}
+          >
+            Sign up
+          </button>
+          <button
+            onClick={() => setActiveView('log')}
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
               activeView === 'log'
                 ? 'bg-[#4A2B33] text-[#F7F3EC]'
                 : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
@@ -474,10 +364,8 @@ export default function App() {
             Daily log
           </button>
           <button
-            onClick={() => {
-              setActiveView('history');
-            }}
-            className={`px-2.5 py-0.5 rounded-full whitespace-nowrap transition-colors ${
+            onClick={() => setActiveView('history')}
+            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
               activeView === 'history'
                 ? 'bg-[#4A2B33] text-[#F7F3EC]'
                 : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
@@ -490,14 +378,42 @@ export default function App() {
 
       {/* Main Viewport Content */}
       {viewportMode === 'desktop' ? (
-        <DesktopApp
-          entries={entries}
-          onSaveEntry={handleSaveEntry}
-          userName={effectiveProfile.userName || 'Achieng'}
-          userProfile={effectiveProfile}
-          onUpdatePeriodStart={handleUpdatePeriodStart}
-          onSwitchToMobile={() => setViewportMode('mobile')}
-        />
+        activeView === 'auth-login' || activeView === 'auth-signup' ? (
+          <div className="w-full min-h-[calc(100vh-100px)] bg-[#F7F3EC] flex flex-col justify-center items-center py-8">
+            <AuthPage
+              initialMode={activeView === 'auth-signup' ? 'signup' : 'login'}
+              isMobileView={false}
+              onSuccess={handleAuthSuccess}
+              onContinueGuest={() => setActiveView('unlock')}
+              onCancel={() => setActiveView('home-phase')}
+            />
+          </div>
+        ) : isFirstLoginStep ? (
+          /* Desktop Onboarding Flow Container */
+          <div className="w-full min-h-[calc(100vh-100px)] bg-[#F7F3EC] flex flex-col justify-center items-center py-6">
+            <DesktopOnboarding
+              currentStep={activeView as any}
+              onPasscodeSet={handlePasscodeSet}
+              onSkipPasscode={() => setActiveView('onboarding-privacy')}
+              onOnboardingComplete={handleOnboardingComplete}
+              onNavigateStep={(step) => setActiveView(step)}
+              onCancelToHome={() => setActiveView('home-phase')}
+            />
+          </div>
+        ) : (
+          <DesktopApp
+            entries={entries}
+            onSaveEntry={handleSaveEntry}
+            userName={effectiveProfile.userName}
+            userProfile={effectiveProfile}
+            currentUser={currentUser}
+            onUpdatePeriodStart={handleUpdatePeriodStart}
+            onSwitchToMobile={() => setViewportMode('mobile')}
+            onAuthSuccess={handleAuthSuccess}
+            onSignOut={handleSignOut}
+            onStartOnboarding={() => setActiveView('unlock')}
+          />
+        )
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6">
           {/* Realistic 375 × 812 Mobile Device Canvas */}
@@ -510,7 +426,7 @@ export default function App() {
               </div>
 
               {/* Mobile Status Bar */}
-              <div className="w-full pt-2.5 px-6 pb-1 flex items-center justify-between text-[11px] font-medium text-[#4A2B33] select-none z-20">
+              <div className="w-full pt-4 px-6 pb-2 flex items-center justify-between text-[11px] font-medium text-[#4A2B33] select-none z-20 bg-[#F7F3EC]">
                 <span>9:41</span>
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px]">5G</span>
@@ -522,34 +438,33 @@ export default function App() {
 
               {/* Main Screen Container (Scrollable) */}
               <div className="flex-1 overflow-hidden relative">
+                {/* Auth Screen (Mobile) */}
+                {(activeView === 'auth-login' || activeView === 'auth-signup') && (
+                  <AuthPage
+                    initialMode={activeView === 'auth-signup' ? 'signup' : 'login'}
+                    isMobileView={true}
+                    onSuccess={handleAuthSuccess}
+                    onContinueGuest={() => setActiveView('unlock')}
+                    onCancel={() => setActiveView('home-phase')}
+                  />
+                )}
+
                 {/* 1. Unlock Screen */}
                 {activeView === 'unlock' && (
                   <UnlockScreen
-                    onSubmit={handleUnlockSubmit}
-                    error={activeView === 'unlock' ? apiError : null}
-                    busy={isLoading}
-                    onClearError={() => setApiError(null)}
+                    onPasscodeSet={handlePasscodeSet}
+                    onSkip={() => setActiveView('onboarding-privacy')}
                   />
                 )}
 
-                {/* 2. Onboarding Cards */}
-                {activeView === 'onboarding-name' && (
+                {/* 2. Onboarding Flow (All Questionnaire & Onboarding Steps) */}
+                {isFirstLoginStep && activeView !== 'unlock' && (
                   <OnboardingFlow
-                    initialStep={1}
-                    onComplete={handleOnboardingComplete}
-                  />
-                )}
-
-                {activeView === 'onboarding-period' && (
-                  <OnboardingFlow
-                    initialStep={2}
-                    onComplete={handleOnboardingComplete}
-                  />
-                )}
-
-                {activeView === 'onboarding-rhythm' && (
-                  <OnboardingFlow
-                    initialStep={3}
+                    initialStepKey={VIEW_TO_ONBOARDING[activeView as DesktopStepKey] || 'privacy'}
+                    onStepChange={(stepKey) => {
+                      setActiveView(ONBOARDING_TO_VIEW[stepKey] || 'onboarding-privacy');
+                    }}
+                    onBackToUnlock={() => setActiveView('unlock')}
                     onComplete={handleOnboardingComplete}
                   />
                 )}
@@ -563,9 +478,12 @@ export default function App() {
                       if (screen === 'history') setActiveView('history');
                       if (screen === 'home') setActiveView('home-phase');
                     }}
-                    userName={effectiveProfile.userName || 'Achieng'}
+                    userName={effectiveProfile.userName}
                     userProfile={effectiveProfile}
+                    currentUser={currentUser}
                     onUpdatePeriodStart={handleUpdatePeriodStart}
+                    onOpenAuth={(mode) => setActiveView(mode === 'signup' ? 'auth-signup' : 'auth-login')}
+                    onOpenAccount={() => setAccountModalOpen(true)}
                   />
                 )}
 
@@ -575,7 +493,6 @@ export default function App() {
                     existingEntry={todayEntry}
                     onSave={handleSaveEntry}
                     onCancel={() => setActiveView('home-phase')}
-                    cycleDay={todayCycleDay ?? undefined}
                   />
                 )}
 
@@ -643,6 +560,18 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Global Account Menu Modal */}
+      <AccountMenuModal
+        isOpen={accountModalOpen}
+        currentUser={currentUser}
+        userProfile={effectiveProfile}
+        onClose={() => setAccountModalOpen(false)}
+        onSignOut={handleSignOut}
+        onOpenAuth={(mode) => {
+          setActiveView(mode === 'signup' ? 'auth-signup' : 'auth-login');
+        }}
+      />
     </div>
   );
 }

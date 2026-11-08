@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DailyEntry } from '../../types';
-import { formatFriendlyDate, formatFullDate, summarizeEntry, getTodayIso } from '../../utils/cycle';
+import { formatFriendlyDate, formatFullDate, summarizeEntry } from '../../utils/cycle';
 import { cycleHistoryCadence } from '../../data/seedData';
 
 interface DesktopHistoryProps {
@@ -129,7 +129,7 @@ export const DesktopHistory: React.FC<DesktopHistoryProps> = ({
                 )}-${String(dayNum).padStart(2, '0')}`;
                 const entry = entriesByDate.get(dateStr);
                 const isSelected = selectedEntry?.date === dateStr;
-                const isToday = dateStr === getTodayIso();
+                const isToday = dateStr === '2026-11-07';
                 const hasPeriod =
                   entry && entry.flow && entry.flow !== 'none';
                 const hasPain = entry && entry.pain >= 2;

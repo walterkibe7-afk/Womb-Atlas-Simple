@@ -1,0 +1,29 @@
+app = "womb-atlas"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "4001"
+
+[[services]]
+  internal_port = 4001
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 443
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.tcp_checks]]
+    interval = "10s"
+    timeout = "2s"
+    graceful_period = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1024"

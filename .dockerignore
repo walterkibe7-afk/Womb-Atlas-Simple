@@ -1,0 +1,13 @@
+node_modules/
+dist/
+target/
+.git/
+.gitignore
+.env
+*.md
+docs/
+prompts/
+backend/.dockerignore
+backend/.env
+backend/.env.example
+backend/README.md

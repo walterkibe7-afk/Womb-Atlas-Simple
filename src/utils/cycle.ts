@@ -50,22 +50,21 @@ export function getPhaseDetails(phase: CyclePhase, cycleDay: number) {
   }
 }
 
-export function getGreeting(userName = '', date = new Date()): string {
+export function getGreeting(userName = 'Achieng', date = new Date()): string {
   const hour = date.getHours();
-  // Name is required at onboarding, but degrade gracefully if absent.
-  const nameToUse = userName.trim();
-  const salutation =
-    hour >= 5 && hour < 12
-      ? 'Good morning'
-      : hour >= 12 && hour < 17
-        ? 'Good afternoon'
-        : 'Good evening';
-  return nameToUse ? `${salutation}, ${nameToUse}` : salutation;
+  const nameToUse = userName.trim() || 'Achieng';
+  if (hour >= 5 && hour < 12) {
+    return `Good morning, ${nameToUse}`;
+  }
+  if (hour >= 12 && hour < 17) {
+    return `Good afternoon, ${nameToUse}`;
+  }
+  return `Good evening, ${nameToUse}`;
 }
 
 export function calculateCycleDayFromDate(
   lastPeriodStartStr?: string,
-  todayStr = getTodayIso(),
+  todayStr = '2026-11-07',
   cycleLength = 28
 ): number | null {
   if (!lastPeriodStartStr) return null;
@@ -194,23 +193,4 @@ export function formatFullDate(dateStr: string): string {
     day: 'numeric',
     year: 'numeric',
   });
-}
-
-/** Formats any Date as a local-timezone ISO date string (YYYY-MM-DD). */
-export function toLocalIso(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-/** Local-timezone ISO date (YYYY-MM-DD) for "today". */
-export function getTodayIso(): string {
-  return toLocalIso(new Date());
-}
-
-/** An ISO date `daysBack` days before today (for demo anchors). */
-export function daysBackIso(daysBack: number, fromIso = getTodayIso()): string {
-  const ms = new Date(`${fromIso}T00:00:00`).getTime() - daysBack * 24 * 60 * 60 * 1000;
-  return toLocalIso(new Date(ms));
 }

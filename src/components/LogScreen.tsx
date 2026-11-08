@@ -1,14 +1,11 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FlowLevel, Symptom, Mood, DailyEntry } from '../types';
-import { getTodayIso } from '../utils/cycle';
 
 interface LogScreenProps {
   onSave: (entry: Omit<DailyEntry, 'id' | 'createdAt'>) => void;
   onCancel: () => void;
   existingEntry?: DailyEntry;
-  /** Cycle day to attach when saving (computed from the user's profile). */
-  cycleDay?: number;
 }
 
 const FLOW_OPTIONS: { id: FlowLevel; label: string; desc: string }[] = [
@@ -49,7 +46,6 @@ export const LogScreen: React.FC<LogScreenProps> = ({
   onSave,
   onCancel,
   existingEntry,
-  cycleDay,
 }) => {
   const [activeGroup, setActiveGroup] = useState<1 | 2 | 3>(1);
   const [flow, setFlow] = useState<FlowLevel>(existingEntry?.flow || 'light');
@@ -71,8 +67,8 @@ export const LogScreen: React.FC<LogScreenProps> = ({
 
   const handleSave = () => {
     onSave({
-      date: getTodayIso(),
-      cycleDay: cycleDay ?? existingEntry?.cycleDay ?? 1,
+      date: '2026-11-07',
+      cycleDay: 3,
       flow,
       pain,
       symptoms,

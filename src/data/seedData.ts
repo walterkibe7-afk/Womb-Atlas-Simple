@@ -1,5 +1,4 @@
 import { DailyEntry } from '../types';
-import { toLocalIso } from '../utils/cycle';
 
 export const initialEntries: DailyEntry[] = [
   {
@@ -128,32 +127,6 @@ export const initialEntries: DailyEntry[] = [
 export interface CycleRhythmRecord {
   month: string;
   days: number;
-}
-
-// The newest seed entry is authored on this date; all seed dates are shifted
-// so this entry lands on the current day whenever the app is opened.
-const SEED_ANCHOR = '2026-11-07';
-
-/** Returns the seed entries shifted so the newest one falls on `todayIso`,
- *  preserving the day-gaps between entries (keeps the demo coherent on any
- *  day it is run). */
-export function getSeedEntries(todayIso: string): DailyEntry[] {
-  const anchorMs = new Date(`${SEED_ANCHOR}T00:00:00`).getTime();
-  const todayMs = new Date(`${todayIso}T00:00:00`).getTime();
-  const offsetMs = todayMs - anchorMs;
-  if (offsetMs === 0) return initialEntries;
-  return initialEntries.map((entry) => {
-    const newDateMs = new Date(`${entry.date}T00:00:00`).getTime() + offsetMs;
-    const createdAtMs = entry.createdAt
-      ? new Date(entry.createdAt).getTime() + offsetMs
-      : newDateMs;
-    return {
-      ...entry,
-      id: `entry-${toLocalIso(new Date(newDateMs))}`,
-      date: toLocalIso(new Date(newDateMs)),
-      createdAt: new Date(createdAtMs).toISOString(),
-    };
-  });
 }
 
 export const cycleHistoryCadence: CycleRhythmRecord[] = [

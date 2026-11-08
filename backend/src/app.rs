@@ -1,5 +1,5 @@
 use axum::{Router, middleware, http::Method, response::IntoResponse, Json};
-use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer};
+use tower_http::{cors::CorsLayer, limit::RequestBodyLimitLayer, services::ServeDir};
 use crate::{state::AppState, routes::{health, auth, me, entries}};
 use serde_json::json;
 
@@ -24,12 +24,17 @@ pub fn create_app(state: AppState) -> Router {
         .merge(entries::entries_routes())
         .layer(auth_middleware);
 
-    Router::new()
+    let api = Router::new()
         .merge(health::health_routes())
         .merge(auth::auth_routes())
         .merge(protected_routes)
         .fallback(not_found)
         .layer(RequestBodyLimitLayer::new(64 * 1024))
         .layer(cors)
-        .with_state(state)
+        .with_state(state);
+
+    // Serve the built Vite SPA (./dist) alongside the API. API routes
+    // (/api/*) are matched first; everything else falls back to the static
+    // files, so the SPA loads at "/" with no client-side router needed.
+    api.fallback_service(ServeDir::new("dist").append_index_html_on_directories(true))
 }
