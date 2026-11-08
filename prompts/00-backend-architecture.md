@@ -95,9 +95,10 @@ src/lib/api.ts                 ← agent B4 (frontend fetch client)
 src/App.tsx (edits only)       ← agent B4
 ```
 
-Toolchain facts (verified): `cargo 1.99.1` and `rustc 1.99.1` are installed
-natively on this Windows host; Postgres is reachable from Windows at
-`127.0.0.1:5433` once agent B1 is done.
+Toolchain facts (updated 2026-11-08): the backend **builds and runs in a
+podman container** — `backend/Containerfile`, tagged `womb-atlas-backend`.
+No native MSVC Build Tools / Windows SDK / GNU toolchain is required on the
+host anymore. The DB answers on the host at `127.0.0.1:5433`.
 
 ## Call order for subagents (real dependencies: sequential)
 

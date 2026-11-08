@@ -18,7 +18,8 @@ Working directory: D:\Web Designs\Womb Atlas Simple
 3. prompts/README.md — call order + the six hard rules.
 
 ## Environment facts (pre-verified; do not re-troubleshoot)
-- cargo 1.99.1 / rustc 1.99.1 native on Windows.
+- Backend builds/runs in podman (`backend/Containerfile`); no native
+  MSVC/SDK/GNU toolchain needed on Windows.
 - Podman machine running; port 5432 is the OLD project's DB — never touch it; our DB maps to host 5433.
 - Frontend dev server runs on 3000; API on 4001.
 
@@ -40,8 +41,7 @@ Step 2  → prompt file prompts/02-db-schema.md
           Verify YOURSELF:
           - podman exec ... psql ... "\dt" lists users, profiles, entries, sessions
           - "\dT+" lists life_stage, flow, mood enums
-          - cd backend && cargo run --bin seed ran twice: second says "Already seeded."
-          - cd backend && cargo check clean
+          - podman build ./backend succeeded; `podman run --rm -e DATABASE_URL="postgresql://womb_atlas:womb_atlas_dev_2026@host.containers.internal:5433/womb_atlas" womb-atlas-backend /app/seed` ran twice: second says "Already seeded."
          STOP if the migration or seed is missing/broken. Report the mismatch in
           your final report — do not silently repair schema drift; if it deviates
           from 00-backend-architecture.md, STOP and report.
@@ -54,14 +54,14 @@ Step 3  → prompt file prompts/03-api-server.md
           - invalid payloads rejected: short pin, pain 9, empty name → 4xx
           - sessions.token_hash is a 64-char sha256 hex (podman psql), never a raw token
           - server restart: the old token still works
-          - cd backend && cargo check passes
+          - podman build ./backend passes
           STOP if any contract row fails.
 
 Step 4  → prompt file prompts/04-frontend-wiring.md
           Verify YOURSELF:
           - src/lib/api.ts exists, no localStorage diary code reintroduced
           - npm run lint && npm run build pass at repo root
-          - cd backend && cargo check still passes
+          - podman build ./backend still passes
           - with both dev servers running: token round-trip works (GET /api/entries
             after a PUT from the SPA — prove via curl or psql row)
           - visual click-through IS NOT yours to do: report that it is pending and

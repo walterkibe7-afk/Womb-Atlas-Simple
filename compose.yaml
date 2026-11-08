@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: womb-atlas-postgres
+    network_mode: bridge
+    environment:
+      POSTGRES_DB: womb_atlas
+      POSTGRES_USER: womb_atlas
+      POSTGRES_PASSWORD: womb_atlas_dev_2026
+      TZ: UTC
+    ports:
+      - "5433:5432"
+    volumes:
+      - womb-atlas-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U womb_atlas -d womb_atlas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    image: womb-atlas-backend
+    container_name: womb-atlas-api
+    environment:
+      # host.containers.internal reaches the HOST's published 5433 from
+      # inside this container (no .env inside the image on purpose).
+      DATABASE_URL: postgresql://womb_atlas:womb_atlas_dev_2026@host.containers.internal:5433/womb_atlas
+      PORT: "4001"
+      ALLOWED_ORIGIN: http://localhost:3000
+    ports:
+      - "4001:4001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  womb-atlas-pgdata:

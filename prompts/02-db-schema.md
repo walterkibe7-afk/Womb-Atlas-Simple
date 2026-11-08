@@ -13,8 +13,10 @@ family/pregnancy/medical history columns — do not add any).
 Reference: https://cheat-sheets.org/ (SQL, Rust sections);
 https://docs.rs/sqlx (sqlx crate); https://www.postgresql.org/docs/
 
-Toolchain facts: `cargo 1.99.1` / `rustc 1.99.1` are installed on this Windows
-host; the DB answers from Windows at `127.0.0.1:5433`.
+Build-and-run facts (updated 2026-11-08): backend builds go through podman —
+`podman build -t womb-atlas-backend ./backend` (see `backend/Containerfile`).
+No MSVC Build Tools / Windows SDK / GNU toolchain needed on the Windows host.
+The DB answers on the host at `127.0.0.1:5433`.
 
 ## You own these files (create/modify; nothing else)
 
@@ -133,20 +135,23 @@ One demo user `Achieng` with:
 
 ## Procedure
 
-1. Verify DB reachable (e.g. `cargo run --bin seed` fails cleanly before
-   migrate, or `podman exec` psql `\dt`).
+1. Verify DB reachable (e.g. the seed run via the container fails cleanly
+   with a clear connection error before migrate, or `podman exec` psql `\dt`).
 2. Apply migrations with `sqlx` — via `sqlx-cli` if available
    (`sqlx migrate run`) else via a tiny `migrate` bin in seed.rs calling
    `sqlx::migrate!("./migrations")` (document which path you took).
-3. Run `cargo run --bin seed` twice → second run prints "Already seeded."
-4. `cargo check` (and `cargo clippy` if toolchain has it) clean.
+3. Run the seed twice via the container (with `-e DATABASE_URL` targeting
+   `host.containers.internal:5433`) → second run prints "Already seeded."
+4. `podman build ./backend` succeeds with zero warnings in YOUR code
+   (warnings surface in the build log).
 
 ## Acceptance criteria
 
 1. 4 tables + 3 enums exist in the podman Postgres (prove via `podman exec ...
    psql ... \dt` / `\dT+`), indexes + checks + triggers present.
 2. Seed ran; second run idempotent; demo rows visible in psql.
-3. `cargo check` passes with zero warnings in YOUR code.
+3. `podman build ./backend` passes; build log carries zero warnings in YOUR
+   code.
 4. Nothing outside `backend/migrations/`, `backend/src/seed.rs`,
    `backend/Cargo.toml`(+lock) was created or modified.
 5. Report: files created, migration mechanism used, seed output, `\dt`/`\dT+`

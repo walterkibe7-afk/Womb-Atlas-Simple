@@ -32,7 +32,7 @@ when a named milestone is complete AND locally verified**:
 | Milestone-level examples | Verification required before push |
 |---|---|
 | First-run onboarding journey complete | `npm run lint` + `npm run build` pass; full in-browser click-through done |
-| Storage layer attached (agents B1–B4 reports in) | lint + build + `cd backend && cargo check`; end-to-end journey incl. entry round-trip to Postgres proven |
+| Storage layer attached (agents B1–B4 reports in) | lint + build + `podman build ./backend`; end-to-end journey incl. entry round-trip to Postgres proven |
 | Home/Log/History adaptation signed off | all of the above + desktop variants reviewed |
 | Sikiza staging touchpoint (future) | vendor milestone evidence per `docs/SIKIZA-COMPANION.md` |
 
@@ -70,7 +70,8 @@ VPS + podman, or Cloudflare Tunnel from the dev box during scheduled demos).
 
 ## Discipline checklist before any push
 
-1. Working tree clean (or knowingly clean-ish); lint + build (+ cargo check
+1. Working tree clean (or knowingly clean-ish); lint + build (+ backend
+   `podman build ./backend`
    once backend exists) green locally.
 2. The milestone can be *demonstrated*: click the journey end-to-end yourself.
 3. Commit message names the milestone (e.g. `milestone: first-run journey end-to-end`).

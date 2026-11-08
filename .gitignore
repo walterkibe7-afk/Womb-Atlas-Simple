@@ -7,6 +7,9 @@ coverage/
 .env*
 !.env.example
 
+# Rust build artifacts
+backend/target/
+
 # AI Studio prototype temp artifacts (keep repos clean for client viewing)
 .aistudio/
 update/.aistudio/

@@ -77,7 +77,7 @@ preview" pills, viewport switcher, "Reset first-run flow") stays.
 
 ## Acceptance criteria
 
-1. Repo root `npm run lint` passes; `cd backend && cargo check` still
+1. Repo root `npm run lint` passes; `podman build ./backend` still
    passes (nothing broken across the wire).
 2. In-browser journey (`npm run dev` root + backend dev server running):
    - fresh session → health ok → unlock (1234 against seeded user) → onboarding

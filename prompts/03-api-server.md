@@ -14,8 +14,11 @@ it is binding; implement it exactly.** `AGENTS.md` for tone/scope rules.
 Reference: https://cheat-sheets.org/ (Rust section), https://docs.rs/axum,
 https://docs.rs/sqlx, https://docs.rs/argon2, https://docs.rs/sha2
 
-Toolchain facts: `cargo 1.99.1` / `rustc 1.99.1` installed natively on Windows;
-DB reachable from Windows at 127.0.0.1:5433.
+Toolchain facts (updated 2026-11-08): backend builds run in podman —
+`podman build -t womb-atlas-backend ./backend`, then
+`podman run --rm -d -p 4001:4001 -e DATABASE_URL="postgresql://womb_atlas:womb_atlas_dev_2026@host.containers.internal:5433/womb_atlas" -e PORT=4001 -e ALLOWED_ORIGIN="http://localhost:3000" womb-atlas-backend`.
+No MSVC Build Tools / Windows SDK / GNU toolchain needed on the Windows host;
+DB reachable from inside a container via `host.containers.internal:5433`.
 
 ## You own these files (create/modify; nothing else)
 
@@ -96,7 +99,8 @@ tracing     = "0.1"      # optional but recommended; tracing-subscriber to see r
 
 ## Run/verify against the LIVE stack (all acceptance is runtime)
 
-1. `cargo run` (alias script unnecessary) serves 4001 with DB retry.
+1. `podman run` of the image serves 4001 with DB retry (compose `backend`
+   service or the `podman run` command in the Toolchain facts above).
 2. Curl the ENTIRE contract happy-path + failure-path matrix:
    health → setup(1234) → setup-again(409) → session(wrong=401) →
    session(right) → GET/PUT me → PUT entry today → entries list (+from/to
@@ -105,6 +109,7 @@ tracing     = "0.1"      # optional but recommended; tracing-subscriber to see r
    "12", pain 9, name "") → each 4xx with correct code. Prove
    `sessions.token_hash` is a 64-char hex (never raw token) via podman psql.
 3. Restart resilience: token valid after server restart; expired/unknown → 401.
-4. `cargo check` and `cargo clippy` (if present) — no warnings in YOUR modules.
+4. `podman build ./backend` succeeds — no warnings in YOUR modules visible
+   in the build log.
 5. Report: files created, module layout, the verify transcript (HTTP statuses
    only), and any contract deviation with a one-line justification.
