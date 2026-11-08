@@ -1,10 +1,19 @@
 # Deployment — GitHub + Cloudflare, milestone-gated
 
-Modeled on the ST (`X-Store`) setup: local git → GitHub repo → Cloudflare
-builds/redeploys automatically, so the client and team see live updates
-without anyone manually shipping. The one deliberate difference: **this
-project pushes to GitHub only after a major milestone is verified working** —
-not continuously.
+**Standalone, not a fork/branch of X-Store.** Womb Atlas Simple gets its own
+GitHub repo and its own Cloudflare Pages project. X-Store and its infrastructure
+remain untouched. The ST project is referenced here only as the working
+*pattern* (GitHub-triggered Cloudflare builds) — its code, repo, and config are
+not reused in any way.
+
+**Both apps under one Cloudflare account:** a single Cloudflare account hosts
+unlimited Pages/Workers projects side by side, each with its own repo, build
+settings, URL (`x-store.pages.dev`, `womb-atlas-simple.pages.dev`), and
+independent deploys. So yes — X-Store and Womb Atlas can live in the same
+Cloudflare account with zero interference.
+
+The one deliberate difference from the ST flow: **pushes to `main` happen only
+after a major milestone is verified working** — not continuously.
 
 ## The pattern (borrowed from ST)
 
