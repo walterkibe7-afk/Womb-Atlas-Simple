@@ -1,7 +1,8 @@
 # ============================================================
-# Womb Atlas Simple — Fly.io production image
-# Builds the Vite SPA and the Rust axum backend in one image.
-# The backend serves both the API (/api/*) and the SPA static files.
+# Womb Atlas Simple — Cloudflare Pages production image
+# Builds the Vite SPA for Cloudflare Pages deployment.
+# The backend (Rust axum) runs locally on port 4001; only the SPA
+# static output (dist/) is deployed to Cloudflare Pages.
 # ============================================================
 
 # ---------- Stage 1: Frontend (Vite SPA) ----------
