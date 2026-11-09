@@ -8,12 +8,10 @@ interface PrivacyFirstScreenProps {
     healthData: boolean;
     appActivity: boolean;
   }) => void;
-  onSkipAll?: () => void;
 }
 
 export const PrivacyFirstScreen: React.FC<PrivacyFirstScreenProps> = ({
   onContinue,
-  onSkipAll,
 }) => {
   const [agreedPrivacy, setAgreedPrivacy] = useState(false);
   const [agreedHealth, setAgreedHealth] = useState(false);
@@ -43,7 +41,6 @@ export const PrivacyFirstScreen: React.FC<PrivacyFirstScreenProps> = ({
     <div className="flex flex-col h-full bg-[#F7F3EC] text-[#4A2B33] px-5 pt-4 pb-6 overflow-y-auto">
       <div className="flex items-center justify-between pb-3">
         <div className="flex items-center gap-2"><span className="font-serif text-lg tracking-tight text-[#4A2B33] font-medium">Womb Atlas</span><span className="text-[11px] text-[#7A5862]">· Privacy First</span></div>
-        <button type="button" onClick={onSkipAll} className="text-xs text-[#7A5862] hover:text-[#4A2B33] min-h-[44px] px-2 flex items-center">Skip all</button>
       </div>
 
       <div className="flex-1 flex flex-col justify-between pt-1">
@@ -78,7 +75,6 @@ export const PrivacyFirstScreen: React.FC<PrivacyFirstScreenProps> = ({
           </AnimatePresence>
           <button type="button" disabled={!allAgreed} onClick={handleNext} className={`w-full min-h-[50px] py-3.5 px-6 rounded-[18px] font-sans text-sm font-medium transition-all shadow-sm flex items-center justify-center gap-2 ${allAgreed ? 'bg-[#4A2B33] text-[#F7F3EC] hover:bg-[#3B2229] active:scale-[0.99] cursor-pointer' : 'bg-[#EADFD5]/70 text-[#A4948F] border border-[#DFD5CB] cursor-not-allowed opacity-60'}`}><span>Continue</span><span aria-hidden="true">→</span></button>
           {!allAgreed && <p className="text-[11px] text-center text-[#9E8B83] font-sans">Please select all 3 agreements above to continue</p>}
-          <div className="text-center"><button type="button" onClick={onSkipAll} className="text-xs text-[#7A5862] hover:text-[#4A2B33] py-2 px-4 transition-colors">Skip all</button></div>
         </div>
       </div>
     </div>

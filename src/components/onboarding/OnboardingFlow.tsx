@@ -226,7 +226,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 setAgreedActivity(agreements.appActivity);
                 updateStep('unlock');
               }}
-              onSkipAll={handleSkipAll}
             />
           </motion.div>
         )}
