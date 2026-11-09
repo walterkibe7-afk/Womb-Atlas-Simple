@@ -1,30 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { initialEntries } from './data/seedData';
 import { DailyEntry, UserProfile, AuthUser } from './types';
 import { HomeScreen } from './components/HomeScreen';
 import { LogScreen } from './components/LogScreen';
 import { HistoryScreen } from './components/HistoryScreen';
-import { UnlockScreen } from './components/onboarding/UnlockScreen';
 import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
-import { DesktopApp } from './components/desktop/DesktopApp';
+import { DesktopApp, DesktopTab } from './components/desktop/DesktopApp';
 import { DesktopOnboarding, DesktopStepKey } from './components/desktop/DesktopOnboarding';
 import { OnboardingStepKey } from './components/onboarding/OnboardingFlow';
 import { AuthPage } from './components/auth/AuthPage';
 import { AccountMenuModal } from './components/auth/AccountMenuModal';
+import { SplashScreen } from './components/onboarding/SplashScreen';
 
-type ViewportMode = 'desktop' | 'mobile';
-type ActiveViewKey =
-  | DesktopStepKey
-  | 'home-phase'
-  | 'home-learning'
-  | 'log'
-  | 'history'
-  | 'auth-login'
-  | 'auth-signup';
+type AppSection = 'home' | 'track' | 'insights' | 'profile';
+type AppPhase = 'splash' | 'auth' | 'onboarding' | 'app';
 
 const VIEW_TO_ONBOARDING: Record<DesktopStepKey, OnboardingStepKey> = {
-  'unlock': 'privacy',
   'onboarding-privacy': 'privacy',
+  'onboarding-unlock': 'unlock',
   'onboarding-social': 'social-intro',
   'onboarding-discovery': 'discovery',
   'onboarding-birth-year': 'birth-year',
@@ -47,6 +40,7 @@ const VIEW_TO_ONBOARDING: Record<DesktopStepKey, OnboardingStepKey> = {
 
 const ONBOARDING_TO_VIEW: Record<OnboardingStepKey, DesktopStepKey> = {
   'privacy': 'onboarding-privacy',
+  'unlock': 'onboarding-unlock',
   'social-intro': 'onboarding-social',
   'discovery': 'onboarding-discovery',
   'birth-year': 'onboarding-birth-year',
@@ -67,27 +61,49 @@ const ONBOARDING_TO_VIEW: Record<OnboardingStepKey, DesktopStepKey> = {
   'plan-pricing': 'onboarding-plan',
 };
 
+const DEFAULT_PROFILE: UserProfile = {
+  passcodeSet: false,
+  passcode: undefined,
+  userName: '',
+  lastPeriodStart: undefined,
+  lifeStage: undefined,
+  cycleLength: 28,
+  periodLength: 5,
+  usesHormonalBirthControl: false,
+  hasCompletedOnboarding: false,
+};
+
 export default function App() {
-  const [viewportMode, setViewportMode] = useState<ViewportMode>('desktop');
-  const [activeView, setActiveView] = useState<ActiveViewKey>('unlock');
+  const [appPhase, setAppPhase] = useState<AppPhase>('splash');
+  const [currentSection, setCurrentSection] = useState<AppSection>('home');
   const [entries, setEntries] = useState<DailyEntry[]>(initialEntries);
   const [currentUser, setCurrentUser] = useState<AuthUser | undefined>(undefined);
+  const [userProfile, setUserProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [showSplash, setShowSplash] = useState(true);
+  const [onboardingStep, setOnboardingStep] = useState<DesktopStepKey>('onboarding-privacy');
+  const [onboardingMobileStep, setOnboardingMobileStep] = useState<OnboardingStepKey>('privacy');
+  const [isMobileView, setIsMobileView] = useState(false);
 
-  // User Profile State
-  const [userProfile, setUserProfile] = useState<UserProfile>({
-    passcodeSet: false,
-    passcode: undefined,
-    userName: 'Achieng',
-    lastPeriodStart: '2026-11-05', // 2 days ago = Day 3
-    lifeStage: 'currently-cycling',
-    cycleLength: 28,
-    periodLength: 5,
-    usesHormonalBirthControl: false,
-    hasCompletedOnboarding: false,
-  });
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+      setAppPhase('auth');
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
-  const handleSaveEntry = (newEntryData: Omit<DailyEntry, 'id' | 'createdAt'>) => {
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileView(window.innerWidth < 768);
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleSaveEntry = useCallback((newEntryData: Omit<DailyEntry, 'id' | 'createdAt'>) => {
     setEntries((prev) => {
       const existingIndex = prev.findIndex((e) => e.date === newEntryData.date);
       if (existingIndex >= 0) {
@@ -107,471 +123,321 @@ export default function App() {
         return [created, ...prev];
       }
     });
-  };
+  }, []);
 
-  const handleUpdatePeriodStart = (dateStr: string) => {
+  const handleUpdatePeriodStart = useCallback((dateStr: string) => {
     setUserProfile((prev) => ({
       ...prev,
       lastPeriodStart: dateStr,
     }));
-    setActiveView('home-phase');
-  };
+  }, []);
 
-  const handleResetFirstLogin = () => {
-    setUserProfile({
-      passcodeSet: false,
-      passcode: undefined,
-      userName: '',
-      lastPeriodStart: undefined,
-      lifeStage: undefined,
-      cycleLength: 28,
-      periodLength: 5,
-      usesHormonalBirthControl: false,
-      hasCompletedOnboarding: false,
-    });
-    setCurrentUser(undefined);
-    setActiveView('unlock');
-  };
-
-  const handlePasscodeSet = (pin?: string) => {
+  const handleAuthSuccess = useCallback((user: AuthUser, mode?: 'login' | 'signup') => {
+    setCurrentUser(user);
     setUserProfile((prev) => ({
       ...prev,
-      passcodeSet: Boolean(pin),
-      passcode: pin,
+      userName: user.name || prev.userName || 'Achieng',
+      hasCompletedOnboarding: mode === 'signup' ? false : prev.hasCompletedOnboarding,
     }));
-    setActiveView('onboarding-privacy');
-  };
 
-  const handleOnboardingComplete = (data: Partial<UserProfile>) => {
+    if (mode === 'signup') {
+      setAppPhase('onboarding');
+      setOnboardingStep('onboarding-privacy');
+      setOnboardingMobileStep('privacy');
+    } else if (!userProfile.hasCompletedOnboarding) {
+      setAppPhase('onboarding');
+      setOnboardingStep('onboarding-privacy');
+      setOnboardingMobileStep('privacy');
+    } else if (!userProfile.passcodeSet) {
+      setAppPhase('onboarding');
+      setOnboardingStep('onboarding-unlock');
+      setOnboardingMobileStep('unlock');
+    } else {
+      setAppPhase('app');
+      setCurrentSection('home');
+    }
+  }, [userProfile.hasCompletedOnboarding, userProfile.passcodeSet]);
+
+  const handleSignOut = useCallback(() => {
+    setCurrentUser(undefined);
+    setUserProfile(DEFAULT_PROFILE);
+    setAppPhase('auth');
+    setAuthMode('login');
+  }, []);
+
+  const handleOnboardingComplete = useCallback((data: Partial<UserProfile>) => {
     setUserProfile((prev) => ({
       ...prev,
       ...data,
       hasCompletedOnboarding: true,
     }));
-    // Land directly on home: phase-mode if date given, learning-mode if not
-    if (data.lastPeriodStart) {
-      setActiveView('home-phase');
-    } else {
-      setActiveView('home-learning');
-    }
-  };
+    setAppPhase('app');
+    setCurrentSection(data.lastPeriodStart ? 'home' : 'home');
+  }, []);
 
-  const handleAuthSuccess = (user: AuthUser, authMode?: 'login' | 'signup') => {
-    setCurrentUser(user);
+  const handleSkipAll = useCallback(() => {
     setUserProfile((prev) => ({
       ...prev,
-      userName: user.name || prev.userName || 'Achieng',
-      hasCompletedOnboarding: authMode === 'signup' ? false : prev.hasCompletedOnboarding,
+      hasCompletedOnboarding: true,
     }));
+    setAppPhase('app');
+    setCurrentSection('home');
+  }, []);
 
-    // If new signup or first login, take the user through the first-login sequence!
-    if (authMode === 'signup' || !userProfile.hasCompletedOnboarding) {
-      setActiveView('unlock');
+  const handleContinueOnboarding = useCallback(() => {
+    setAppPhase('onboarding');
+    if (!userProfile.agreedToPrivacyPolicy) {
+      setOnboardingStep('onboarding-privacy');
+      setOnboardingMobileStep('privacy');
+    } else if (!userProfile.passcodeSet) {
+      setOnboardingStep('onboarding-unlock');
+      setOnboardingMobileStep('unlock');
     } else {
-      setActiveView('home-phase');
+      setOnboardingStep('onboarding-social');
+      setOnboardingMobileStep('social-intro');
     }
-  };
+  }, [userProfile.agreedToPrivacyPolicy, userProfile.passcodeSet]);
 
-  const handleSignOut = () => {
-    setCurrentUser(undefined);
-  };
+  const handleOnboardingStepChange = useCallback((stepKey: OnboardingStepKey) => {
+    setOnboardingMobileStep(stepKey);
+    const desktopStep = ONBOARDING_TO_VIEW[stepKey];
+    if (desktopStep) {
+      setOnboardingStep(desktopStep);
+    }
+  }, []);
+
+  const handleDesktopOnboardingStepChange = useCallback((step: DesktopStepKey) => {
+    setOnboardingStep(step);
+    const mobileStep = VIEW_TO_ONBOARDING[step];
+    if (mobileStep) {
+      setOnboardingMobileStep(mobileStep);
+    }
+  }, []);
+
+  const handlePasscodeSet = useCallback((pin?: string) => {
+    setUserProfile((prev) => ({
+      ...prev,
+      passcodeSet: Boolean(pin),
+      passcode: pin,
+    }));
+  }, []);
+
+  const handleOpenAuth = useCallback((mode: 'login' | 'signup') => {
+    setAuthMode(mode);
+    setAppPhase('auth');
+  }, []);
+
+  const handleBackToApp = useCallback(() => {
+    setAppPhase('app');
+  }, []);
 
   const todayEntry = entries.find((e) => e.date === '2026-11-07');
 
-  // Derive effective profile based on activeView quick toggle
   const effectiveProfile: UserProfile = {
     ...userProfile,
     userName: currentUser?.name || userProfile.userName || 'Achieng',
     currentUser,
-    lastPeriodStart:
-      activeView === 'home-learning'
-        ? undefined
-        : userProfile.lastPeriodStart || '2026-11-05',
+    lastPeriodStart: userProfile.lastPeriodStart,
   };
 
-  const isFirstLoginStep =
-    activeView === 'unlock' || activeView.startsWith('onboarding-');
+  const isInOnboarding = appPhase === 'onboarding';
+  const isInAuth = appPhase === 'auth';
 
-  return (
-    <div className="min-h-screen bg-[#EDE7DF] flex flex-col font-sans selection:bg-[#C99A86]/20">
-      {/* Top Testing & Viewport Mode Navigation Bar */}
-      <nav
-        aria-label="Viewport Switcher"
-        className="w-full bg-[#FAF6F0] border-b border-[#E3D7CB] py-2.5 px-4 z-40 sticky top-0 shadow-xs"
-      >
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-serif text-base font-medium text-[#4A2B33]">
-              Womb Atlas
-            </span>
-            <span className="text-xs text-[#7A5862]">
-              · Reproductive health tracker &amp; sanctuary
-            </span>
-          </div>
+  if (showSplash) {
+    return <SplashScreen onComplete={() => setShowSplash(false)} />;
+  }
 
-          {/* Quick Review Screen Switcher */}
-          <div className="flex items-center gap-2 flex-wrap justify-center">
-            {/* Viewport switcher */}
-            <div className="flex items-center gap-1 bg-[#EFE7DE] p-0.5 rounded-full border border-[#DFD3C5]">
-              <button
-                onClick={() => setViewportMode('desktop')}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                  viewportMode === 'desktop'
-                    ? 'bg-[#FAF6F0] text-[#4A2B33] shadow-xs'
-                    : 'text-[#7A5862] hover:text-[#4A2B33]'
-                }`}
-              >
-                Desktop Version
-              </button>
-              <button
-                onClick={() => setViewportMode('mobile')}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                  viewportMode === 'mobile'
-                    ? 'bg-[#FAF6F0] text-[#4A2B33] shadow-xs'
-                    : 'text-[#7A5862] hover:text-[#4A2B33]'
-                }`}
-              >
-                Mobile View (375 × 812)
-              </button>
-            </div>
+  if (isInAuth) {
+    return (
+      <AuthPage
+        initialMode={authMode}
+        isMobileView={isMobileView}
+        onSuccess={handleAuthSuccess}
+        onContinueGuest={() => {
+          setCurrentUser({ id: 'local-guest', name: 'Guest', provider: 'local' });
+          setAppPhase('onboarding');
+          setOnboardingStep('onboarding-privacy');
+          setOnboardingMobileStep('privacy');
+        }}
+        onCancel={handleBackToApp}
+      />
+    );
+  }
 
-            {/* Auth status indicator pill */}
-            <button
-              onClick={() => setAccountModalOpen(true)}
-              className="text-xs text-[#4A2B33] bg-[#FAF6F0] hover:bg-[#EFE7DE] px-3 py-1 rounded-full border border-[#EADBCE] font-medium transition-colors flex items-center gap-1.5"
-            >
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  currentUser ? 'bg-[#A8B5A2]' : 'bg-[#C99A86]'
-                }`}
-              ></span>
-              <span>
-                {currentUser
-                  ? `${currentUser.name} (${currentUser.provider})`
-                  : 'Sanctuary (Guest)'}
-              </span>
-            </button>
-
-            {/* Walkthrough CTA button */}
-            <button
-              onClick={handleResetFirstLogin}
-              className="text-xs text-[#9F6E5A] bg-[#F6EDE8] hover:bg-[#EADBCE] px-3 py-1 rounded-full border border-[#EADBCE] font-medium transition-colors"
-            >
-              Restart first-login flow
-            </button>
-          </div>
-        </div>
-
-        {/* Quick Stepper Bar for First-Login Steps & Sanctuary Views */}
-        <div className="max-w-7xl mx-auto pt-2.5 pb-1 flex items-center gap-1.5 overflow-x-auto text-[11px]">
-          <span className="text-[#4A2B33] font-medium whitespace-nowrap bg-[#EFE7DE] px-2 py-0.5 rounded-md mr-1">
-            First-login steps:
-          </span>
-
-          {[
-            { id: 'unlock', label: '1. Lock' },
-            { id: 'onboarding-privacy', label: '2. Privacy' },
-            { id: 'onboarding-social', label: '3. Story' },
-            { id: 'onboarding-discovery', label: '4. Found us' },
-            { id: 'onboarding-birth-year', label: '5. Birth' },
-            { id: 'onboarding-measurements', label: '6. Body' },
-            { id: 'onboarding-knowledge', label: '7. Knowledge' },
-            { id: 'onboarding-feelings', label: '8. Feelings' },
-            { id: 'onboarding-regularity', label: '9. Regularity' },
-            { id: 'onboarding-period', label: '10. Period' },
-            { id: 'onboarding-rhythm', label: '11. Rhythm' },
-            { id: 'onboarding-birth-control', label: '12. Birth control' },
-            { id: 'onboarding-health-conditions', label: '13. Health' },
-            { id: 'onboarding-discharge', label: '14. Discharge' },
-            { id: 'onboarding-lifestyle', label: '15. Symptoms' },
-            { id: 'onboarding-pledge', label: '16. Pledge' },
-            { id: 'onboarding-security', label: '17. Safe' },
-            { id: 'onboarding-notifications', label: '18. Remind' },
-            { id: 'onboarding-loading', label: '19. Lens' },
-            { id: 'onboarding-plan', label: '20. Plan' },
-          ].map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setActiveView(s.id as DesktopStepKey)}
-              className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors font-medium ${
-                activeView === s.id
-                  ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                  : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
-
-          <span className="text-[#DFD3C5] mx-1">|</span>
-
-          {/* Landing and App Views */}
-          <span className="text-[#7A5862] font-medium whitespace-nowrap mr-0.5">
-            After onboarding:
-          </span>
-          <button
-            onClick={() => setActiveView('home-phase')}
-            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'home-phase'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            3. Landing (Phase-mode)
-          </button>
-          <button
-            onClick={() => setActiveView('home-learning')}
-            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'home-learning'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            3. Landing (Learning-mode)
-          </button>
-
-          <span className="text-[#DFD3C5] mx-1">|</span>
-
-          {/* Auth & Logging */}
-          <button
-            onClick={() => setActiveView('auth-login')}
-            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'auth-login'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            Sign in
-          </button>
-          <button
-            onClick={() => setActiveView('auth-signup')}
-            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'auth-signup'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            Sign up
-          </button>
-          <button
-            onClick={() => setActiveView('log')}
-            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'log'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            Daily log
-          </button>
-          <button
-            onClick={() => setActiveView('history')}
-            className={`px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${
-              activeView === 'history'
-                ? 'bg-[#4A2B33] text-[#F7F3EC]'
-                : 'bg-[#FAF6F0] text-[#7A5862] hover:text-[#4A2B33] border border-[#EADBCE]'
-            }`}
-          >
-            History
-          </button>
-        </div>
-      </nav>
-
-      {/* Main Viewport Content */}
-      {viewportMode === 'desktop' ? (
-        activeView === 'auth-login' || activeView === 'auth-signup' ? (
-          <div className="w-full min-h-[calc(100vh-100px)] bg-[#F7F3EC] flex flex-col justify-center items-center py-8">
-            <AuthPage
-              initialMode={activeView === 'auth-signup' ? 'signup' : 'login'}
-              isMobileView={false}
-              onSuccess={handleAuthSuccess}
-              onContinueGuest={() => setActiveView('unlock')}
-              onCancel={() => setActiveView('home-phase')}
-            />
-          </div>
-        ) : isFirstLoginStep ? (
-          /* Desktop Onboarding Flow Container */
-          <div className="w-full min-h-[calc(100vh-100px)] bg-[#F7F3EC] flex flex-col justify-center items-center py-6">
-            <DesktopOnboarding
-              currentStep={activeView as any}
-              onPasscodeSet={handlePasscodeSet}
-              onSkipPasscode={() => setActiveView('onboarding-privacy')}
-              onOnboardingComplete={handleOnboardingComplete}
-              onNavigateStep={(step) => setActiveView(step)}
-              onCancelToHome={() => setActiveView('home-phase')}
-            />
-          </div>
-        ) : (
-          <DesktopApp
-            entries={entries}
-            onSaveEntry={handleSaveEntry}
-            userName={effectiveProfile.userName}
-            userProfile={effectiveProfile}
-            currentUser={currentUser}
-            onUpdatePeriodStart={handleUpdatePeriodStart}
-            onSwitchToMobile={() => setViewportMode('mobile')}
-            onAuthSuccess={handleAuthSuccess}
-            onSignOut={handleSignOut}
-            onStartOnboarding={() => setActiveView('unlock')}
+  if (isInOnboarding) {
+    if (isMobileView) {
+      return (
+        <div className="flex flex-col h-screen bg-[#F7F3EC] text-[#4A2B33]">
+          <OnboardingFlow
+            initialStepKey={onboardingMobileStep}
+            onStepChange={handleOnboardingStepChange}
+            onComplete={handleOnboardingComplete}
+            onSkipAll={handleSkipAll}
           />
-        )
-      ) : (
-        <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6">
-          {/* Realistic 375 × 812 Mobile Device Canvas */}
-          <div className="origin-top scale-[0.92] sm:scale-[0.96] md:scale-100 transition-transform">
-            <div className="relative w-[375px] h-[812px] bg-[#F7F3EC] rounded-[44px] shadow-[0_20px_50px_rgba(74,43,51,0.12)] border-[8px] border-[#3B282E] overflow-hidden flex flex-col">
-              {/* Mobile Top Speaker & Camera Island */}
-              <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-28 h-4 bg-[#3B282E] rounded-full z-30 pointer-events-none flex items-center justify-center">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#1F1418] mr-3"></span>
-                <span className="w-8 h-1 rounded-full bg-[#2A1D22]"></span>
-              </div>
+        </div>
+      );
+    } else {
+      return (
+        <div className="w-full min-h-screen bg-[#F7F3EC] flex flex-col justify-center items-center py-6">
+          <DesktopOnboarding
+            currentStep={onboardingStep}
+            onPasscodeSet={handlePasscodeSet}
+            onSkipPasscode={() => handleOnboardingStepChange('social-intro')}
+            onOnboardingComplete={handleOnboardingComplete}
+            onNavigateStep={handleDesktopOnboardingStepChange}
+            onCancelToHome={handleBackToApp}
+            onSkipAll={handleSkipAll}
+          />
+        </div>
+      );
+    }
+  }
 
-              {/* Mobile Status Bar */}
-              <div className="w-full pt-4 px-6 pb-2 flex items-center justify-between text-[11px] font-medium text-[#4A2B33] select-none z-20 bg-[#F7F3EC]">
-                <span>9:41</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px]">5G</span>
-                  <span className="w-4 h-2 border border-[#4A2B33] rounded-[2px] p-[1px] inline-block">
-                    <span className="w-full h-full bg-[#4A2B33] block rounded-[1px]"></span>
-                  </span>
+  const renderMobileApp = () => (
+    <div className="flex flex-col h-screen bg-[#EDE7DF] pb-safe">
+      <div className="flex-1 flex flex-col min-h-0 relative">
+        <div className="mobile-preview-frame w-full max-w-[375px] h-full bg-[#F7F3EC] rounded-[44px] shadow-[0_20px_50px_rgba(74,43,51,0.12)] border border-[#DFD3C5] overflow-hidden flex flex-col">
+          <div className="pt-[env(safe-area-inset-top)]" aria-hidden="true" />
+          <div className="flex-1 overflow-y-auto relative pb-[calc(env(safe-area-inset-bottom)+80px)]">
+            {currentSection === 'home' && (
+              <HomeScreen
+                entries={entries}
+                onNavigate={(screen) => {
+                  if (screen === 'log') setCurrentSection('track');
+                  if (screen === 'history') setCurrentSection('insights');
+                  if (screen === 'home') setCurrentSection('home');
+                }}
+                userName={effectiveProfile.userName}
+                userProfile={effectiveProfile}
+                currentUser={currentUser}
+                onUpdatePeriodStart={handleUpdatePeriodStart}
+                onOpenAuth={handleOpenAuth}
+                onOpenAccount={() => setAccountModalOpen(true)}
+                onContinueOnboarding={handleContinueOnboarding}
+              />
+            )}
+            {currentSection === 'track' && (
+              <LogScreen
+                existingEntry={todayEntry}
+                onSave={handleSaveEntry}
+                onCancel={() => setCurrentSection('home')}
+              />
+            )}
+            {currentSection === 'insights' && (
+              <HistoryScreen
+                entries={entries}
+                onBackToHome={() => setCurrentSection('home')}
+              />
+            )}
+            {currentSection === 'profile' && (
+              <div className="flex flex-col h-full bg-[#F7F3EC] text-[#4A2B33] px-5 pt-4 pb-6 overflow-y-auto">
+                <div className="flex items-center justify-between pb-3">
+                  <span className="font-serif text-lg text-[#4A2B33] font-medium">Profile</span>
+                </div>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => setAccountModalOpen(true)}
+                    className="w-full text-left p-4 bg-[#FAF6F0] border border-[#EADBCE] rounded-[16px] hover:border-[#C99A86] transition-all"
+                  >
+                    <div className="font-medium text-[#4A2B33]">Account & Sanctuary Access</div>
+                    <div className="text-xs text-[#7A5862] mt-1">Manage authentication, passcode, and data</div>
+                  </button>
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full text-left p-4 bg-[#FAF6F0] border border-[#EADBCE] rounded-[16px] hover:border-[#E8CAD0] hover:bg-[#FBECEE] transition-all text-[#9F4855]"
+                  >
+                    <div className="font-medium">Sign Out</div>
+                    <div className="text-xs text-[#7A5862] mt-1">Leave your sanctuary</div>
+                  </button>
                 </div>
               </div>
-
-              {/* Main Screen Container (Scrollable) */}
-              <div className="flex-1 overflow-hidden relative">
-                {/* Auth Screen (Mobile) */}
-                {(activeView === 'auth-login' || activeView === 'auth-signup') && (
-                  <AuthPage
-                    initialMode={activeView === 'auth-signup' ? 'signup' : 'login'}
-                    isMobileView={true}
-                    onSuccess={handleAuthSuccess}
-                    onContinueGuest={() => setActiveView('unlock')}
-                    onCancel={() => setActiveView('home-phase')}
-                  />
-                )}
-
-                {/* 1. Unlock Screen */}
-                {activeView === 'unlock' && (
-                  <UnlockScreen
-                    onPasscodeSet={handlePasscodeSet}
-                    onSkip={() => setActiveView('onboarding-privacy')}
-                  />
-                )}
-
-                {/* 2. Onboarding Flow (All Questionnaire & Onboarding Steps) */}
-                {isFirstLoginStep && activeView !== 'unlock' && (
-                  <OnboardingFlow
-                    initialStepKey={VIEW_TO_ONBOARDING[activeView as DesktopStepKey] || 'privacy'}
-                    onStepChange={(stepKey) => {
-                      setActiveView(ONBOARDING_TO_VIEW[stepKey] || 'onboarding-privacy');
-                    }}
-                    onBackToUnlock={() => setActiveView('unlock')}
-                    onComplete={handleOnboardingComplete}
-                  />
-                )}
-
-                {/* 3. Landing States */}
-                {(activeView === 'home-phase' || activeView === 'home-learning') && (
-                  <HomeScreen
-                    entries={entries}
-                    onNavigate={(screen) => {
-                      if (screen === 'log') setActiveView('log');
-                      if (screen === 'history') setActiveView('history');
-                      if (screen === 'home') setActiveView('home-phase');
-                    }}
-                    userName={effectiveProfile.userName}
-                    userProfile={effectiveProfile}
-                    currentUser={currentUser}
-                    onUpdatePeriodStart={handleUpdatePeriodStart}
-                    onOpenAuth={(mode) => setActiveView(mode === 'signup' ? 'auth-signup' : 'auth-login')}
-                    onOpenAccount={() => setAccountModalOpen(true)}
-                  />
-                )}
-
-                {/* Daily Log Screen */}
-                {activeView === 'log' && (
-                  <LogScreen
-                    existingEntry={todayEntry}
-                    onSave={handleSaveEntry}
-                    onCancel={() => setActiveView('home-phase')}
-                  />
-                )}
-
-                {/* History Screen */}
-                {activeView === 'history' && (
-                  <HistoryScreen
-                    entries={entries}
-                    onBackToHome={() => setActiveView('home-phase')}
-                  />
-                )}
-              </div>
-
-              {/* Mobile Bottom Tab Bar (shown once user is in home, log, or history) */}
-              {(activeView === 'home-phase' ||
-                activeView === 'home-learning' ||
-                activeView === 'log' ||
-                activeView === 'history') && (
-                <nav
-                  aria-label="Mobile Navigation"
-                  className="h-[64px] bg-[#FAF6F0] border-t border-[#EADBCE] grid grid-cols-3 items-center px-4 shrink-0 z-20"
-                >
-                  <button
-                    onClick={() => setActiveView('home-phase')}
-                    className={`min-h-[44px] flex flex-col items-center justify-center transition-colors ${
-                      activeView === 'home-phase' || activeView === 'home-learning'
-                        ? 'text-[#4A2B33]'
-                        : 'text-[#9A7D86] hover:text-[#4A2B33]'
-                    }`}
-                  >
-                    <span className="text-base leading-none">○</span>
-                    <span className="text-[10px] font-medium mt-1">Today</span>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveView('log')}
-                    className={`min-h-[44px] flex flex-col items-center justify-center transition-colors ${
-                      activeView === 'log'
-                        ? 'text-[#4A2B33]'
-                        : 'text-[#9A7D86] hover:text-[#4A2B33]'
-                    }`}
-                  >
-                    <span className="text-base leading-none">+</span>
-                    <span className="text-[10px] font-medium mt-1">Log</span>
-                  </button>
-
-                  <button
-                    onClick={() => setActiveView('history')}
-                    className={`min-h-[44px] flex flex-col items-center justify-center transition-colors ${
-                      activeView === 'history'
-                        ? 'text-[#4A2B33]'
-                        : 'text-[#9A7D86] hover:text-[#4A2B33]'
-                    }`}
-                  >
-                    <span className="text-base leading-none">▤</span>
-                    <span className="text-[10px] font-medium mt-1">History</span>
-                  </button>
-                </nav>
-              )}
-
-              {/* Mobile Home Bar Pill Indicator */}
-              <div className="w-full pb-1.5 pt-0.5 bg-[#FAF6F0] flex justify-center items-center">
-                <div className="w-28 h-1 bg-[#C99A86]/60 rounded-full"></div>
-              </div>
-            </div>
+            )}
           </div>
+          <nav
+            aria-label="Mobile Navigation"
+            className="h-[80px] bg-[#FAF6F0] border-t border-[#EADBCE] grid grid-cols-4 items-center px-4 shrink-0 z-20 fixed bottom-0 left-0 right-0 pb-[env(safe-area-inset-bottom)]"
+          >
+            <button
+              onClick={() => setCurrentSection('home')}
+              className={`min-h-[44px] flex flex-col items-center justify-center transition-colors ${
+                currentSection === 'home' ? 'text-[#4A2B33]' : 'text-[#9A7D86] hover:text-[#4A2B33]'
+              }`}
+            >
+              <span className="text-xl leading-none">🏠</span>
+              <span className="text-[10px] font-medium mt-1">Home</span>
+            </button>
+            <button
+              onClick={() => setCurrentSection('track')}
+              className={`min-h-[44px] flex flex-col items-center justify-center transition-colors ${
+                currentSection === 'track' ? 'text-[#4A2B33]' : 'text-[#9A7D86] hover:text-[#4A2B33]'
+              }`}
+            >
+              <span className="text-xl leading-none">📝</span>
+              <span className="text-[10px] font-medium mt-1">Track</span>
+            </button>
+            <button
+              onClick={() => setCurrentSection('insights')}
+              className={`min-h-[44px] flex flex-col items-center justify-center transition-colors ${
+                currentSection === 'insights' ? 'text-[#4A2B33]' : 'text-[#9A7D86] hover:text-[#4A2B33]'
+              }`}
+            >
+              <span className="text-xl leading-none">📊</span>
+              <span className="text-[10px] font-medium mt-1">Insights</span>
+            </button>
+            <button
+              onClick={() => setCurrentSection('profile')}
+              className={`min-h-[44px] flex flex-col items-center justify-center transition-colors ${
+                currentSection === 'profile' ? 'text-[#4A2B33]' : 'text-[#9A7D86] hover:text-[#4A2B33]'
+              }`}
+            >
+              <span className="text-xl leading-none">👤</span>
+              <span className="text-[10px] font-medium mt-1">Profile</span>
+            </button>
+          </nav>
         </div>
-      )}
-
-      {/* Global Account Menu Modal */}
+      </div>
       <AccountMenuModal
         isOpen={accountModalOpen}
         currentUser={currentUser}
         userProfile={effectiveProfile}
         onClose={() => setAccountModalOpen(false)}
         onSignOut={handleSignOut}
-        onOpenAuth={(mode) => {
-          setActiveView(mode === 'signup' ? 'auth-signup' : 'auth-login');
-        }}
+        onOpenAuth={handleOpenAuth}
       />
+    </div>
+  );
+
+  const renderDesktopApp = () => (
+    <DesktopApp
+      entries={entries}
+      onSaveEntry={handleSaveEntry}
+      userName={effectiveProfile.userName}
+      userProfile={effectiveProfile}
+      currentUser={currentUser}
+      onUpdatePeriodStart={handleUpdatePeriodStart}
+      onAuthSuccess={handleAuthSuccess}
+      onSignOut={handleSignOut}
+      onStartOnboarding={handleContinueOnboarding}
+      activeTab={
+        currentSection === 'home' ? 'today' :
+        currentSection === 'track' ? 'log' :
+        currentSection === 'insights' ? 'history' :
+        undefined
+      }
+      onTabChange={(tab) => {
+        if (tab === 'today') setCurrentSection('home');
+        else if (tab === 'log') setCurrentSection('track');
+        else if (tab === 'history') setCurrentSection('insights');
+        else if (tab === 'auth') handleOpenAuth('login');
+      }}
+      accountModalOpen={currentSection === 'profile'}
+      onAccountModalClose={() => setCurrentSection('home')}
+    />
+  );
+
+  return (
+    <div className="min-h-screen bg-[#EDE7DF] flex flex-col font-sans selection:bg-[#C99A86]/20">
+      {isMobileView ? renderMobileApp() : renderDesktopApp()}
     </div>
   );
 }

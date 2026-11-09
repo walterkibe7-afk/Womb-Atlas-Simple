@@ -15,10 +15,15 @@ interface DesktopAppProps {
   currentUser?: AuthUser;
   onUpdatePeriodStart?: (date: string) => void;
   onSwitchToMobile?: () => void;
+  onSwitchToDesktop?: () => void;
   onAuthSuccess?: (user: AuthUser) => void;
   onSignOut?: () => void;
   onStartOnboarding?: () => void;
   initialAuthMode?: 'login' | 'signup';
+  activeTab?: DesktopTab;
+  onTabChange?: (tab: DesktopTab) => void;
+  accountModalOpen?: boolean;
+  onAccountModalClose?: () => void;
 }
 
 export type DesktopTab = 'today' | 'log' | 'history' | 'auth';
@@ -30,26 +35,60 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
   userProfile,
   currentUser,
   onUpdatePeriodStart,
+  onSwitchToMobile,
+  onSwitchToDesktop,
   onAuthSuccess,
   onSignOut,
   onStartOnboarding,
   initialAuthMode = 'login',
+  activeTab: controlledActiveTab,
+  onTabChange,
+  accountModalOpen,
+  onAccountModalClose,
 }) => {
   const [activeTab, setActiveTab] = useState<DesktopTab>('today');
   const [authMode, setAuthMode] = useState<'login' | 'signup'>(initialAuthMode);
-  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [accountModalOpenInternal, setAccountModalOpenInternal] = useState(false);
   const todayEntry = entries.find((e) => e.date === '2026-11-07');
+
+  const isControlled = controlledActiveTab !== undefined;
+  const currentTab = isControlled ? controlledActiveTab : activeTab;
+  const setCurrentTab = isControlled ? onTabChange! : setActiveTab;
+
+  const isAccountModalOpen = accountModalOpen ?? accountModalOpenInternal;
+  const closeAccountModal = () => {
+    if (accountModalOpen !== undefined && onAccountModalClose) {
+      onAccountModalClose();
+    } else {
+      setAccountModalOpenInternal(false);
+    }
+  };
+  const openAccountModal = () => {
+    if (accountModalOpen !== undefined && onAccountModalClose) {
+      // Parent controls the modal
+    } else {
+      setAccountModalOpenInternal(true);
+    }
+  };
 
   const handleOpenAuth = (mode: 'login' | 'signup') => {
     setAuthMode(mode);
-    setActiveTab('auth');
+    setCurrentTab('auth');
+  };
+
+  const handleAuthTabClick = () => {
+    if (currentTab === 'auth') {
+      setAuthMode((prev) => (prev === 'login' ? 'signup' : 'login'));
+    } else {
+      setCurrentTab('auth');
+    }
   };
 
   const handleAuthComplete = (user: AuthUser) => {
     if (onAuthSuccess) {
       onAuthSuccess(user);
     }
-    setActiveTab('today');
+    setCurrentTab('today');
   };
 
   const isGuest = !currentUser || currentUser.provider === 'local';
@@ -61,7 +100,7 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
         {/* Zone 1: Single Brand Wordmark */}
         <div className="flex items-center gap-3 shrink-0">
           <button
-            onClick={() => setActiveTab('today')}
+            onClick={() => setCurrentTab('today')}
             className="font-serif text-xl font-medium tracking-tight text-[#4A2B33] hover:text-[#3B2229] transition-colors whitespace-nowrap text-left"
           >
             Womb Atlas
@@ -74,9 +113,9 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
         {/* Zone 2: Clean single-line text links */}
         <nav className="flex items-center gap-7 text-sm text-[#7A5862]">
           <button
-            onClick={() => setActiveTab('today')}
+            onClick={() => setCurrentTab('today')}
             className={`whitespace-nowrap transition-colors pb-0.5 ${
-              activeTab === 'today'
+              currentTab === 'today'
                 ? 'text-[#4A2B33] font-medium border-b-2 border-[#4A2B33]'
                 : 'hover:text-[#4A2B33]'
             }`}
@@ -84,9 +123,9 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
             Today
           </button>
           <button
-            onClick={() => setActiveTab('log')}
+            onClick={() => setCurrentTab('log')}
             className={`whitespace-nowrap transition-colors pb-0.5 ${
-              activeTab === 'log'
+              currentTab === 'log'
                 ? 'text-[#4A2B33] font-medium border-b-2 border-[#4A2B33]'
                 : 'hover:text-[#4A2B33]'
             }`}
@@ -94,9 +133,9 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
             Daily entry
           </button>
           <button
-            onClick={() => setActiveTab('history')}
+            onClick={() => setCurrentTab('history')}
             className={`whitespace-nowrap transition-colors pb-0.5 ${
-              activeTab === 'history'
+              currentTab === 'history'
                 ? 'text-[#4A2B33] font-medium border-b-2 border-[#4A2B33]'
                 : 'hover:text-[#4A2B33]'
             }`}
@@ -112,9 +151,9 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
             </button>
           )}
           <button
-            onClick={() => handleOpenAuth('login')}
+            onClick={handleAuthTabClick}
             className={`whitespace-nowrap transition-colors pb-0.5 ${
-              activeTab === 'auth'
+              currentTab === 'auth'
                 ? 'text-[#4A2B33] font-medium border-b-2 border-[#4A2B33]'
                 : 'hover:text-[#4A2B33]'
             }`}
@@ -127,7 +166,7 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
         <div className="flex items-center gap-3 shrink-0">
           {!isGuest ? (
             <button
-              onClick={() => setAccountModalOpen(true)}
+              onClick={openAccountModal}
               className="flex items-center gap-2 py-1.5 px-3 rounded-full bg-[#FAF6F0] hover:bg-white border border-[#EADBCE] text-xs text-[#4A2B33] transition-all"
             >
               <div className="w-6 h-6 rounded-full bg-[#EFE7DE] flex items-center justify-center font-serif text-xs font-medium text-[#4A2B33]">
@@ -154,7 +193,7 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
           )}
 
           <button
-            onClick={() => setActiveTab('log')}
+            onClick={() => setCurrentTab('log')}
             className="min-h-[38px] px-4 py-2 rounded-full bg-[#4A2B33] text-[#F7F3EC] text-xs font-medium hover:bg-[#3B2229] transition-all whitespace-nowrap shadow-xs"
           >
             Log today
@@ -164,38 +203,39 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 lg:px-12 py-8 flex flex-col justify-center">
-        {activeTab === 'today' && (
+        {currentTab === 'today' && (
           <DesktopToday
             entries={entries}
-            onNavigate={(tab) => setActiveTab(tab)}
+            onNavigate={(tab) => setCurrentTab(tab)}
             userName={currentUser?.name || userName}
             userProfile={userProfile}
             onUpdatePeriodStart={onUpdatePeriodStart}
+            onContinueOnboarding={onStartOnboarding}
           />
         )}
 
-        {activeTab === 'log' && (
+        {currentTab === 'log' && (
           <DesktopLog
             existingEntry={todayEntry}
             onSave={onSaveEntry}
-            onCancel={() => setActiveTab('today')}
+            onCancel={() => setCurrentTab('today')}
           />
         )}
 
-        {activeTab === 'history' && (
+        {currentTab === 'history' && (
           <DesktopHistory
             entries={entries}
-            onBackToToday={() => setActiveTab('today')}
+            onBackToToday={() => setCurrentTab('today')}
           />
         )}
 
-        {activeTab === 'auth' && (
+        {currentTab === 'auth' && (
           <AuthPage
             initialMode={authMode}
             isMobileView={false}
             onSuccess={handleAuthComplete}
-            onContinueGuest={() => setActiveTab('today')}
-            onCancel={() => setActiveTab('today')}
+            onContinueGuest={() => setCurrentTab('today')}
+            onCancel={() => setCurrentTab('today')}
           />
         )}
       </main>
@@ -211,12 +251,13 @@ export const DesktopApp: React.FC<DesktopAppProps> = ({
 
       {/* Account Menu Modal */}
       <AccountMenuModal
-        isOpen={accountModalOpen}
+        isOpen={isAccountModalOpen}
         currentUser={currentUser}
         userProfile={userProfile}
-        onClose={() => setAccountModalOpen(false)}
+        onClose={closeAccountModal}
         onSignOut={() => {
           if (onSignOut) onSignOut();
+          setCurrentTab('today');
         }}
         onOpenAuth={(mode) => handleOpenAuth(mode)}
       />

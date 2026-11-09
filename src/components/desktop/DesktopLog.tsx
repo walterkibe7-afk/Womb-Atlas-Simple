@@ -265,9 +265,9 @@ export const DesktopLog: React.FC<DesktopLogProps> = ({
         <button
           type="button"
           onClick={onCancel}
-          className="min-h-[44px] px-5 py-2 text-xs text-[#7A5862] hover:text-[#4A2B33] transition-colors"
+          className="min-h-[44px] px-5 py-2 text-xs text-[#7A5862] hover:text-[#4A2B33] transition-colors flex items-center gap-1"
         >
-          Cancel
+          ← Back to today
         </button>
         <button
           type="button"
